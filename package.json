@@ -1,0 +1,16 @@
+{
+  "name": "rts-space-colony",
+  "version": "0.1.0",
+  "description": "Space colony RTS game built with Three.js",
+  "type": "module",
+  "scripts": {
+    "dev": "npx vite",
+    "build": "npx vite build"
+  },
+  "dependencies": {
+    "three": "^0.162.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

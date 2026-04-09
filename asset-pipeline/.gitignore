@@ -1,0 +1,7 @@
+venv/
+Hunyuan3D-2/
+output/*.glb
+output/*.obj
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Ignisium — Space Colony</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="ui-overlay">
+    <!-- HUD Frame -->
+    <div id="hud-frame">
+      <div class="hud-corner hud-corner-tl"></div>
+      <div class="hud-corner hud-corner-tr"></div>
+      <div class="hud-corner hud-corner-bl"></div>
+      <div class="hud-corner hud-corner-br"></div>
+      <div class="hud-edge hud-edge-left"></div>
+      <div class="hud-edge hud-edge-right"></div>
+      <div class="hud-edge hud-edge-bottom"></div>
+    </div>
+
+    <!-- Left Sidebar: Colony Status -->
+    <div id="colony-status">
+      <div class="cs-header">COLONY</div>
+      <div class="cs-section">
+        <div class="cs-label">DEFENSE</div>
+        <div class="cs-bar-track"><div class="cs-bar-fill cs-bar-defense" id="cs-defense-bar"></div></div>
+        <div class="cs-value" id="cs-defense-val">0</div>
+      </div>
+      <div class="cs-section">
+        <div class="cs-label">SHIELD</div>
+        <div class="cs-indicator" id="cs-shield-status">OFFLINE</div>
+      </div>
+      <div class="cs-section">
+        <div class="cs-label">BUILDINGS</div>
+        <div class="cs-value" id="cs-building-count">0</div>
+      </div>
+      <div class="cs-section">
+        <div class="cs-label">ZONE</div>
+        <div class="cs-value" id="cs-zone-name">---</div>
+      </div>
+      <div class="cs-divider"></div>
+      <div class="cs-section">
+        <div class="cs-label">THREATS</div>
+        <div class="cs-value cs-threat" id="cs-threat-level">NONE</div>
+      </div>
+    </div>
+
+    <!-- Right Sidebar: Minimap placeholder + system info -->
+    <div id="system-status">
+      <div class="cs-header">SYSTEM</div>
+      <div class="cs-section">
+        <div class="cs-label">ORBIT</div>
+        <div class="cs-value" id="cs-planet-name">Ignisium Prime</div>
+      </div>
+      <div class="cs-section">
+        <div class="cs-label">CLASS</div>
+        <div class="cs-value">VOLCANIC</div>
+      </div>
+      <div class="cs-divider"></div>
+      <div class="cs-section">
+        <div class="cs-label">TECH</div>
+        <div class="cs-value" id="cs-tech-count">0 / 9</div>
+      </div>
+      <div class="cs-section">
+        <div class="cs-label">TRADE</div>
+        <div class="cs-value" id="cs-trade-count">0 routes</div>
+      </div>
+      <div class="cs-divider"></div>
+      <div class="cs-section">
+        <div class="cs-label">FLEET</div>
+        <div class="cs-value" id="cs-fleet-summary">0 ships</div>
+      </div>
+    </div>
+
+    <!-- Bottom Status Bar -->
+    <div id="status-bar">
+      <div class="sb-section">
+        <span class="sb-label">SYS</span>
+        <span class="sb-dot sb-dot-online"></span>
+        <span class="sb-text">NOMINAL</span>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-section">
+        <span class="sb-label">NET</span>
+        <span class="sb-dot sb-dot-online"></span>
+        <span class="sb-text" id="sb-net-status">LINKED</span>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-section">
+        <span class="sb-label">PWR</span>
+        <span class="sb-text" id="sb-power-status">STABLE</span>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-section sb-section-right">
+        <span class="sb-label">VIEW</span>
+        <span class="sb-text" id="sb-view-label">SOLAR</span>
+      </div>
+    </div>
+
+    <!-- Resource Bar -->
+    <div id="resource-bar">
+      <div class="resource">
+        <span class="resource-icon">⚡</span>
+        <div>
+          <div class="resource-label">Energy</div>
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <span class="resource-value" id="energy-value">0</span>
+            <span class="resource-rate" id="energy-rate">+0/s</span>
+          </div>
+        </div>
+      </div>
+      <div class="resource">
+        <span class="resource-icon">💎</span>
+        <div>
+          <div class="resource-label">Minerals</div>
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <span class="resource-value" id="minerals-value">0</span>
+            <span class="resource-rate" id="minerals-rate">+0/s</span>
+          </div>
+        </div>
+      </div>
+      <div class="resource">
+        <span class="resource-icon">👥</span>
+        <div>
+          <div class="resource-label">Population</div>
+          <div style="display:flex;align-items:baseline;gap:6px">
+            <span class="resource-value" id="population-value">0</span>
+            <span class="resource-rate" id="population-rate">/0</span>
+          </div>
+        </div>
+      </div>
+      <div class="resource resource-score">
+        <span class="resource-icon">⭐</span>
+        <span class="resource-value" id="score-display">0</span>
+      </div>
+    </div>
+
+    <!-- Research Progress -->
+    <div id="research-bar" class="hidden">
+      <div id="research-bar-inner">
+        <span id="research-label">Researching...</span>
+        <div id="research-track"><div id="tech-progress-bar"></div></div>
+      </div>
+    </div>
+
+    <!-- Build Menu -->
+    <div id="build-menu" class="hidden">
+      <div class="build-menu-title">Construction Bay</div>
+      <div id="build-categories">
+        <button class="build-cat-tab active" data-cat="all">All</button>
+        <button class="build-cat-tab" data-cat="resource">Resource</button>
+        <button class="build-cat-tab" data-cat="civilian">Civilian</button>
+        <button class="build-cat-tab" data-cat="military">Military</button>
+      </div>
+      <div id="build-options"></div>
+    </div>
+
+    <!-- Tech Menu -->
+    <div id="tech-panel" class="hidden">
+      <div class="build-menu-title">Research Lab</div>
+      <div id="tech-options"></div>
+    </div>
+
+    <!-- Info Panel -->
+    <div id="info-panel" class="hidden">
+      <div id="info-panel-header">
+        <div id="info-panel-title"></div>
+        <div id="info-panel-level"></div>
+      </div>
+      <div id="info-panel-body">
+        <div id="info-panel-desc"></div>
+        <div id="info-panel-stats"></div>
+      </div>
+      <div id="info-panel-actions">
+        <button id="info-panel-upgrade" class="btn btn-primary">Upgrade</button>
+        <button id="info-panel-close" class="btn btn-secondary">Dismiss</button>
+      </div>
+    </div>
+
+    <!-- Shipyard Panel -->
+    <div id="shipyard-panel" class="hidden">
+      <div class="build-menu-title">Shipyard</div>
+      <div id="ship-queue-status"></div>
+      <div id="ship-options"></div>
+      <div id="ship-fleet-summary"></div>
+    </div>
+
+    <!-- Event Log -->
+    <div id="event-log">
+      <div id="event-list"></div>
+    </div>
+
+    <!-- Navigation Buttons -->
+    <button id="btn-back-to-solar" class="hidden btn">↑ Solar System</button>
+    <button id="btn-back-to-overview" class="hidden btn">↑ Planet Overview</button>
+    <div id="bottom-buttons">
+      <button id="btn-build" class="hidden btn btn-danger">⚙ Build</button>
+      <button id="btn-tech" class="hidden btn">🔬 Research</button>
+    </div>
+
+    <!-- Match Timer -->
+    <div id="match-timer" class="hidden">
+      <span id="match-time-value">10:00</span>
+    </div>
+
+    <!-- Placement Indicator -->
+    <div id="placement-indicator" class="hidden">Click hex to place — ESC to cancel</div>
+
+    <!-- Planet Info (Solar) -->
+    <div id="planet-info" class="hidden">
+      <div id="planet-info-inner">
+        <div id="planet-info-name"></div>
+        <div id="planet-info-type"></div>
+        <div id="planet-info-desc"></div>
+        <div id="planet-info-stats"></div>
+        <div id="planet-info-resources"></div>
+        <div id="planet-info-fleet" class="pi-fleet-section"></div>
+        <button id="planet-info-land" class="btn btn-primary">Descend to Surface</button>
+      </div>
+    </div>
+
+    <!-- Tutorial -->
+    <div id="tutorial-overlay" class="hidden">
+      <div id="tutorial-box">
+        <div id="tutorial-text"></div>
+        <button id="tutorial-dismiss" class="btn btn-primary">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="start-screen">
+    <div id="start-inner">
+      <h1 class="start-title">IGNISIUM</h1>
+      <p class="start-subtitle">Space Colony RTS</p>
+      <div class="start-modes">
+        <button id="btn-sandbox" class="btn btn-primary start-btn">🌌 Sandbox Mode</button>
+        <button id="btn-match" class="btn btn-danger start-btn">⚔ Quick Match (10 min)</button>
+      </div>
+      <div class="start-speed">
+        <label class="start-speed-label">Game Speed</label>
+        <select id="game-speed-select">
+          <option value="1">Normal (1x)</option>
+          <option value="3">Fast (3x)</option>
+          <option value="5" selected>Blitz (5x)</option>
+          <option value="10">Hyper (10x)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Match End Overlay -->
+  <div id="match-end" class="hidden">
+    <div id="match-end-inner">
+      <h2>MATCH COMPLETE</h2>
+      <div id="match-final-score"></div>
+      <button id="btn-new-game" class="btn btn-primary">New Game</button>
+    </div>
+  </div>
+
+  <canvas id="game-canvas"></canvas>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
