@@ -85,11 +85,77 @@ def _load_texture():
     return pipe
 
 
+# --- Background removal ---
+import numpy as np
+from rembg import remove as _rembg_remove, new_session as _rembg_new_session
+
+_rembg_session = None
+
+def _get_rembg():
+    global _rembg_session
+    if _rembg_session is not None:
+        return _rembg_session
+    for name in ("birefnet-general", "isnet-general-use", "u2net"):
+        try:
+            _rembg_session = _rembg_new_session(name)
+            print(f"    rembg ready ({name})")
+            return _rembg_session
+        except Exception:
+            pass
+    return None
+
+
+def remove_bg(img):
+    """Remove background, threshold alpha, crop to tight bbox, recenter."""
+    session = _get_rembg()
+    if session is None:
+        return img.convert("RGBA")
+    src = img.convert("RGB")
+    cut = _rembg_remove(src, session=session, bgcolor=[255, 255, 255, 0])
+    if cut.mode != "RGBA":
+        cut = cut.convert("RGBA")
+    # Alpha threshold (kill wisps)
+    arr = np.array(cut)
+    arr[:, :, 3][arr[:, :, 3] < 24] = 0
+    cut = Image.fromarray(arr, "RGBA")
+    # Crop to bbox + recenter on square canvas with padding
+    bbox = cut.getbbox()
+    if bbox is None:
+        return img.convert("RGBA")
+    cropped = cut.crop(bbox)
+    w, h = cropped.size
+    padding = 0.06
+    side = int(max(w, h) * (1 + padding * 2))
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas.paste(cropped, ((side - w) // 2, (side - h) // 2), mask=cropped.split()[3])
+    return canvas
+
+
+# --- Mesh cleanup ---
+def _clean_mesh(mesh):
+    """Remove floating geometry — keep only the largest connected component.
+    Fixes random walls, stray polygons, and disconnected islands that
+    Hunyuan3D sometimes generates."""
+    import trimesh
+    if not isinstance(mesh, trimesh.Trimesh):
+        return mesh
+    components = mesh.split(only_watertight=False)
+    if len(components) <= 1:
+        return mesh
+    # Keep the component with the most faces
+    largest = max(components, key=lambda c: len(c.faces))
+    removed_faces = len(mesh.faces) - len(largest.faces)
+    removed_components = len(components) - 1
+    print(f"    Mesh cleanup: removed {removed_components} disconnected components "
+          f"({removed_faces} faces)")
+    return largest
+
+
 # --- Generation function (yields status updates for real-time progress) ---
 def generate_3d(
     image, asset_name, use_texture,
     octree_resolution, inference_steps, guidance_scale,
-    decimate_faces,
+    decimate_faces, remove_background,
 ):
     if image is None:
         yield None, "ERROR: Please upload an image first."
@@ -106,6 +172,18 @@ def generate_3d(
         return "\n".join(log)
 
     start = time.time()
+
+    # --- Background removal ---
+    if remove_background:
+        yield None, _status("Removing background...")
+        image = remove_bg(image)
+        # Save preprocessed image for debugging
+        try:
+            prep_path = OUTPUT_DIR / f"{name}_{timestamp}_preprocessed.png"
+            image.save(prep_path)
+            yield None, _status(f"  Saved: {prep_path.name}")
+        except Exception:
+            pass
 
     # --- Shape ---
     yield None, _status("Loading shape model...")
@@ -128,6 +206,11 @@ def generate_3d(
 
     del shape_pipe
     _free_vram()
+
+    # --- Mesh cleanup (remove floaters) ---
+    yield None, _status("Cleaning mesh (removing disconnected components)...")
+    mesh = _clean_mesh(mesh)
+    yield None, _status(f"  Clean mesh: verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
 
     # --- Texture ---
     if use_texture:
@@ -171,13 +254,14 @@ def generate_3d(
 # --- Non-generator wrapper for queue/programmatic use ---
 def run_generation(image, asset_name, use_texture=True,
                    octree_resolution=256, inference_steps=30,
-                   guidance_scale=7.5, decimate_faces=80000):
+                   guidance_scale=7.5, decimate_faces=80000,
+                   remove_background=True):
     """Blocking wrapper around generate_3d for use by pipeline_queue."""
     result = (None, "")
     for result in generate_3d(
         image, asset_name, use_texture,
         octree_resolution, inference_steps, guidance_scale,
-        decimate_faces,
+        decimate_faces, remove_background,
     ):
         pass  # drain the generator
     return result
@@ -281,25 +365,37 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                         label="Asset Name", value="command_center",
                         info="Alphanumeric + underscores. Timestamp auto-appended.",
                     )
+                    bg_toggle = gr.Checkbox(
+                        label="Remove background", value=True,
+                        info="Strips background via rembg. Critical for clean meshes.",
+                    )
                     texture_toggle = gr.Checkbox(
                         label="Generate PBR textures", value=True,
                         info="Adds ~90s. Shape-only takes ~20s.",
                     )
+
+                    quality_preset = gr.Dropdown(
+                        choices=["fast", "balanced", "high"],
+                        value="balanced",
+                        label="Quality preset",
+                        info="Sets params below. Fast=20s, Balanced=35s, High=2-3min shape.",
+                    )
+
                     with gr.Accordion("Shape parameters", open=False):
                         octree_slider = gr.Slider(
                             minimum=128, maximum=512, value=256, step=64,
                             label="Octree resolution",
-                            info="256=fast, 384=detailed, 512=max (slow).",
+                            info="256=fast, 384=detailed (sharper edges), 512=max (slow).",
                         )
                         steps_slider = gr.Slider(
                             minimum=15, maximum=60, value=30, step=5,
                             label="Inference steps",
-                            info="30=default, 50=higher quality.",
+                            info="30=default, 50=higher quality, 60=diminishing returns.",
                         )
                         cfg_slider = gr.Slider(
                             minimum=3.0, maximum=12.0, value=7.5, step=0.5,
                             label="Guidance scale",
-                            info="7.5=default, 9-10=sharper adherence.",
+                            info="7.5=default, 9-10=sharper adherence to input image.",
                         )
                     with gr.Accordion("Texture parameters", open=False):
                         decimate_slider = gr.Slider(
@@ -307,6 +403,24 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                             label="Decimate target faces",
                             info="80K=fast (~1 min UV unwrap), 200K=detailed (~5 min).",
                         )
+
+                    PRESETS = {
+                        "fast":     (256, 20, 7.5, 80000),
+                        "balanced": (256, 30, 7.5, 80000),
+                        "high":     (384, 50, 8.5, 100000),
+                    }
+
+                    def _apply_preset(p):
+                        o, s, c, d = PRESETS[p]
+                        return (gr.update(value=o), gr.update(value=s),
+                                gr.update(value=c), gr.update(value=d))
+
+                    quality_preset.change(
+                        fn=_apply_preset, inputs=quality_preset,
+                        outputs=[octree_slider, steps_slider, cfg_slider,
+                                 decimate_slider],
+                    )
+
                     generate_btn = gr.Button("Generate 3D Model", variant="primary", size="lg")
 
                 with gr.Column(scale=1):
@@ -319,7 +433,8 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
             generate_btn.click(
                 fn=generate_3d,
                 inputs=[image_input, asset_name_input, texture_toggle,
-                        octree_slider, steps_slider, cfg_slider, decimate_slider],
+                        octree_slider, steps_slider, cfg_slider, decimate_slider,
+                        bg_toggle],
                 outputs=[file_output, status_output],
             )
 
