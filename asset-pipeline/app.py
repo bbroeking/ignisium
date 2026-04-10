@@ -65,8 +65,11 @@ print("=" * 60)
 
 def _free_vram():
     gc.collect()
+    gc.collect()  # second pass catches ref cycles
     if torch.cuda.is_available():
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
 def _load_shape():
@@ -166,6 +169,9 @@ def generate_3d(
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     out_path = OUTPUT_DIR / f"{name}_{timestamp}.glb"
 
+    # Force-clean any leftover state from previous runs
+    _free_vram()
+
     log = []
     timings = {}  # phase -> seconds
 
@@ -258,6 +264,15 @@ def generate_3d(
             except Exception as e:
                 import traceback; traceback.print_exc()
                 yield None, _status(f"  WARNING: Texture failed ({e}) — exporting untextured")
+            # Aggressively clean up accelerate hooks from cpu_offload
+            try:
+                for m in tex_pipe.models.values():
+                    if hasattr(m, 'pipeline'):
+                        m.pipeline.to("cpu")
+                        if hasattr(m.pipeline, 'remove_all_hooks'):
+                            m.pipeline.remove_all_hooks()
+            except Exception:
+                pass
             del tex_pipe
             _free_vram()
         else:
