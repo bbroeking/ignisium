@@ -1,65 +1,151 @@
-# Ignisium Building Concept Art Prompts
+# Ignisium Building Concept Art Prompts (v2)
 
-Copy-paste these into Midjourney, SDXL, DALL-E, or any image generator to produce concept art for each building. Then feed the resulting image into the asset pipeline to get a GLB.
+Source of truth: `asset-pipeline/prompts.py`. The Pipeline Queue in
+the Gradio app reads from that file, NOT this markdown. Edit the dict
+and the dropdown updates on next app restart.
 
-All prompts follow the same template tuned for SC2 Char tileset / Blizzard stylized-PBR look:
-- Isometric 3/4 view
-- Dark background for clean silhouette
-- "Game asset" and "reference sheet" keywords for isolated objects
-- Stylized SC2 art direction
+Each entry below shows the **subject** (short building description, fed
+to the prompt generator) and the **expanded MJ prompt** that the
+templated PromptGenerator produces from it. You can paste the expanded
+prompt directly into Midjourney v7 if you want to bypass the queue.
 
----
-
-## Command Center
-
-> Stylized sci-fi command headquarters building, volcanic planet colony, isometric 3/4 view, game asset. Large fortified structure with command dome on top, four corner pylons with glowing cyan lights, amber lit windows, antenna spire. Dark gunmetal with bright cyan team-color accents. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Thermal Extractor
-
-> Stylized sci-fi thermal energy extractor, volcanic planet colony, isometric 3/4 view, game asset. Industrial pump station built over a lava vent, thick pipes, spinning turbine ring glowing orange, steam vents, heavy metal base bolted to rock. Dark steel with orange-amber energy glow. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Mineral Drill
-
-> Stylized sci-fi mining drill rig, volcanic planet colony, isometric 3/4 view, game asset. Mechanical drilling arm with diamond bit angled into rock, reinforced base platform, conveyor belt, ore collection bins, small cyan status indicator light on top. Heavy industrial dark metal. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Habitat Pod
-
-> Stylized sci-fi pressurized habitat dome, volcanic planet colony, isometric 3/4 view, game asset. Rounded pressurized living pod with reinforced ring at equator, six warm amber-lit porthole windows, small antenna on top, airlock door visible on one side. White-gray hull with warm interior glow bleeding through windows. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Research Lab
-
-> Stylized sci-fi research laboratory, volcanic planet colony, isometric 3/4 view, game asset. Rectangular facility with satellite dish on roof, holographic display floating above a platform glowing cyan, sensor arrays, data cables running along walls. Clean metallic blue-gray with cyan hologram glow. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Warehouse
-
-> Stylized sci-fi storage warehouse, volcanic planet colony, isometric 3/4 view, game asset. Wide low-profile cargo building with roll-up bay doors, stacked supply crates outside, loading crane arm, roof-mounted floodlight. Utilitarian dark metal panels with yellow hazard striping on doors. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Barracks
-
-> Stylized sci-fi military barracks bunker, volcanic planet colony, isometric 3/4 view, game asset. Reinforced concrete and metal bunker with thick armor plating, narrow slit windows, heavy blast door, sandbag-like barriers at entrance, red warning light on roof. Dark olive and gunmetal with red accent markings. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Defense Turret
-
-> Stylized sci-fi automated defense turret tower, volcanic planet colony, isometric 3/4 view, game asset. Armored tower base with rotating dual-barrel cannon on top, targeting laser sight glowing red, ammo feed belt, heavy bolted foundation plate. Dark steel with red targeting laser and cyan status ring. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Shipyard
-
-> Stylized sci-fi shipyard hangar, volcanic planet colony, isometric 3/4 view, game asset. Large open hangar bay with overhead crane gantry, circular landing pad with guide lights, ship hull frame under construction inside, welding sparks. Biggest building in the colony. Dark industrial metal with amber work lights and cyan pad indicators. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Trade Depot
-
-> Stylized sci-fi trade depot teleport platform, volcanic planet colony, isometric 3/4 view, game asset. Raised cargo platform with glowing green teleport pad in center, ring of cargo containers stacked around edges, manifest display screen, small control booth. Medium-sized utilitarian structure. Dark metal with green energy glow on teleport pad. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
-
-## Shield Generator
-
-> Stylized sci-fi planetary shield generator, volcanic planet colony, isometric 3/4 view, game asset. Cylindrical base with three angled support struts holding up a large glowing energy sphere emitter, visible energy field ripples above, power conduits running into the ground. Dark metal frame with bright cyan energy sphere and electrical arcs. Blizzard StarCraft 2 art style, hand-painted textures, strong silhouette, dark background. Low-poly game model reference sheet.
+All prompts follow these rules:
+- isometric 3/4 view, centered isolated 3D game asset
+- pure white background, no atmosphere, no shadow, no environment
+- no emissive lights, no glow (Hunyuan3D bakes those as lump-mesh)
+- matte painted PBR with subtle team-color trim
+- `--ar 1:1 --s 50` (low stylization, MJ v7 compatible)
 
 ---
 
-## Tips for better results
+## Command Center  (`command_center`)
 
-- **Transparent background**: After generating, use a background remover (remove.bg, Photoshop, GIMP) to get a transparent PNG. Hunyuan3D-2 gives cleaner meshes when the background is transparent or pure white.
-- **Square aspect ratio**: Crop your concept art square (1024x1024 or 2048x2048) before feeding to the 3D generator.
-- **Single object only**: Make sure the concept image has ONE building centered with nothing else in frame.
-- **Consistent lighting**: Use the same lighting style across all buildings so the textures come out consistent.
-- **Pick the best variant**: Generate 4 variants per prompt and pick the one with the cleanest silhouette.
+**Subject:**
+
+> command center building, fortified bunker base with central domed command tower, four corner pylons, narrow window slits, short antenna mast on top, dark gunmetal with subtle cyan team-color trim panels
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi command center building, fortified bunker base with central domed command tower, four corner pylons, narrow window slits, short antenna mast on top, dark gunmetal with subtle cyan team-color trim panels model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Thermal Extractor  (`thermal_extractor`)
+
+**Subject:**
+
+> thermal energy extractor building, industrial pump station with central turbine ring, thick external pipes, heavy bolted base plate, dark steel hull with amber accent panels
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi thermal energy extractor building, industrial pump station with central turbine ring, thick external pipes, heavy bolted base plate, dark steel hull with amber accent panels model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Mineral Drill  (`mineral_drill`)
+
+**Subject:**
+
+> mining drill rig building, mechanical drilling arm with diamond bit angled into rock base, reinforced platform, conveyor belt to ore collection bin, dark heavy industrial metal
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi mining drill rig building, mechanical drilling arm with diamond bit angled into rock base, reinforced platform, conveyor belt to ore collection bin, dark heavy industrial metal model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Habitat Pod  (`habitat_pod`)
+
+**Subject:**
+
+> pressurized habitat dome building, rounded living pod with reinforced equator ring, six dark round porthole panels, small antenna on top, side airlock door, white-grey hull with grey trim
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi pressurized habitat dome building, rounded living pod with reinforced equator ring, six dark round porthole panels, small antenna on top, side airlock door, white-grey hull with grey trim model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Research Lab  (`research_lab`)
+
+**Subject:**
+
+> research laboratory building, rectangular facility with rooftop satellite dish, raised platform with hologram projector, side sensor arrays, data cables along walls, clean blue-grey metallic
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi research laboratory building, rectangular facility with rooftop satellite dish, raised platform with hologram projector, side sensor arrays, data cables along walls, clean blue-grey metallic model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Warehouse  (`warehouse`)
+
+**Subject:**
+
+> storage warehouse building, wide low-profile cargo structure with two roll-up bay doors, stacked supply crates outside, loading crane arm on top, dark metal panels with yellow hazard striping
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi storage warehouse building, wide low-profile cargo structure with two roll-up bay doors, stacked supply crates outside, loading crane arm on top, dark metal panels with yellow hazard striping model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Barracks  (`barracks`)
+
+**Subject:**
+
+> military barracks bunker building, reinforced concrete and metal bunker, thick armor plating, narrow slit windows, heavy blast door at front, sandbag barriers at entrance, dark olive and gunmetal with red warning stripes
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi military barracks bunker building, reinforced concrete and metal bunker, thick armor plating, narrow slit windows, heavy blast door at front, sandbag barriers at entrance, dark olive and gunmetal with red warning stripes model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Defense Turret  (`defense_turret`)
+
+**Subject:**
+
+> automated defense turret tower, armored cylindrical base, rotating turret head with twin cannon barrels, side ammo box, heavy bolted foundation plate, dark gunmetal with red warning stripes and cyan trim panels
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi automated defense turret tower, armored cylindrical base, rotating turret head with twin cannon barrels, side ammo box, heavy bolted foundation plate, dark gunmetal with red warning stripes and cyan trim panels model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Shipyard  (`shipyard`)
+
+**Subject:**
+
+> shipyard hangar building, large rectangular hangar bay with wide front opening, overhead gantry crane bridge across the top, raised circular landing pad in front, external bracing struts, dark industrial steel with cyan trim stripes
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi shipyard hangar building, large rectangular hangar bay with wide front opening, overhead gantry crane bridge across the top, raised circular landing pad in front, external bracing struts, dark industrial steel with cyan trim stripes model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Trade Depot  (`trade_depot`)
+
+**Subject:**
+
+> trade depot platform building, raised square cargo platform with central circular pad, ring of stacked cargo containers around the edge, manifest display screen, small control booth on one side, dark metal hull
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi trade depot platform building, raised square cargo platform with central circular pad, ring of stacked cargo containers around the edge, manifest display screen, small control booth on one side, dark metal hull model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+## Shield Generator  (`shield_gen`)
+
+**Subject:**
+
+> planetary shield generator building, cylindrical base with three angled support struts holding up a large spherical emitter on top, thick power conduits running into the ground, dark metal frame with cyan trim panels
+
+**Expanded MJ prompt:**
+
+```
+A small sci-fi planetary shield generator building, cylindrical base with three angled support struts holding up a large spherical emitter on top, thick power conduits running into the ground, dark metal frame with cyan trim panels model, isometric 3/4 view, centered isolated 3D game asset, hard surface design, sharp clean geometry, strong silhouette, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with subtle cyan team-color trim panels, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, fully visible, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```

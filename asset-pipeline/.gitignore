@@ -1,7 +1,15 @@
 venv/
 Hunyuan3D-2/
+runtime/
 output/*.glb
 output/*.obj
+output/*.png
 __pycache__/
 *.pyc
 .venv/
+
+# Pipeline queue runtime state + secrets
+.env
+queue.json
+inbox/
+_build*.bat

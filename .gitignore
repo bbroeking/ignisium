@@ -37,6 +37,7 @@ Thumbs.db
 # Asset pipeline build artifacts (handled by its own .gitignore too)
 asset-pipeline/venv/
 asset-pipeline/Hunyuan3D-2/
+asset-pipeline/runtime/
 asset-pipeline/output/*.glb
 asset-pipeline/output/*.obj
 asset-pipeline/__pycache__/

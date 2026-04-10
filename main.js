@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -925,6 +926,105 @@ const buildingGenerators = {
 };
 
 // ============================================================
+// GLB-BACKED BUILDING MESHES
+// ------------------------------------------------------------
+// Generated GLBs from the asset-pipeline/ (Hunyuan3D-2) go in
+// public/assets/models/buildings/<type>.glb. If a file exists, it
+// replaces the primitive-based generator for that building type.
+// Missing GLBs silently fall back to the primitive generator, so the
+// game always works — even before any GLBs have been generated.
+// ============================================================
+const BUILDING_GLBS = {
+  command_center:    '/assets/models/buildings/command_center.glb',
+  thermal_extractor: '/assets/models/buildings/thermal_extractor.glb',
+  mineral_drill:     '/assets/models/buildings/mineral_drill.glb',
+  habitat_pod:       '/assets/models/buildings/habitat_pod.glb',
+  research_lab:      '/assets/models/buildings/research_lab.glb',
+  warehouse:         '/assets/models/buildings/warehouse.glb',
+  barracks:          '/assets/models/buildings/barracks.glb',
+  defense_turret:    '/assets/models/buildings/defense_turret.glb',
+  shipyard:          '/assets/models/buildings/shipyard.glb',
+  trade_depot:       '/assets/models/buildings/trade_depot.glb',
+  shield_gen:        '/assets/models/buildings/shield_gen.glb',
+};
+
+// type -> prepared THREE.Group template, cloned for each placement
+const buildingGlbTemplates = new Map();
+const gltfLoader = new GLTFLoader();
+
+// Normalize an imported GLB root so it sits on the hex-grid footprint the
+// primitive generators use (roughly a 4-unit-wide square centered on origin,
+// pivot at y=0). Hunyuan3D output tends to be arbitrarily scaled.
+function normalizeBuildingGlb(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const targetSize = 4; // tune to match primitive footprint
+  const scale = targetSize / maxDim;
+  root.scale.setScalar(scale);
+  // Recompute box post-scale to park the mesh on the ground.
+  const box2 = new THREE.Box3().setFromObject(root);
+  root.position.y -= box2.min.y;
+  // Center XZ so rotation/level-up scaling pivots around the footprint.
+  const center = new THREE.Vector3();
+  box2.getCenter(center);
+  root.position.x -= center.x;
+  root.position.z -= center.z;
+  // Shadow + culling tweaks
+  root.traverse(c => {
+    if (c.isMesh) {
+      c.castShadow = true;
+      c.receiveShadow = true;
+    }
+  });
+  return root;
+}
+
+// Fire all GLB loads in parallel at module init. Any that 404 or fail are
+// just dropped — the primitive fallback handles it. We do a HEAD probe first
+// because Vite's dev server falls back to serving index.html (HTTP 200,
+// content-type text/html) for missing static files, which would otherwise be
+// fed into GLTFLoader and produce noisy parse errors in the console.
+function preloadBuildingGlbs() {
+  return Promise.all(Object.entries(BUILDING_GLBS).map(async ([type, url]) => {
+    try {
+      const head = await fetch(url, { method: 'HEAD' });
+      if (!head.ok) return;
+      const ct = head.headers.get('content-type') || '';
+      if (ct.includes('text/html')) return; // SPA fallback, file isn't actually there
+      const gltf = await gltfLoader.loadAsync(url);
+      const template = normalizeBuildingGlb(gltf.scene);
+      buildingGlbTemplates.set(type, template);
+      console.log(`[ignisium] loaded GLB for ${type}`);
+      // Swap any already-placed primitive meshes for this building type.
+      if (typeof GS !== 'undefined' && GS.buildings) {
+        for (const b of GS.buildings) {
+          if (b.type !== type || b.mesh?.userData?.isGlb) continue;
+          const newMesh = template.clone(true);
+          newMesh.position.copy(b.mesh.position);
+          newMesh.rotation.copy(b.mesh.rotation);
+          newMesh.scale.setScalar(1 + (b.level - 1) * 0.08);
+          newMesh.userData = { ...b.mesh.userData, isGlb: true };
+          newMesh.visible = b.mesh.visible;
+          planetScene.remove(b.mesh);
+          planetScene.add(newMesh);
+          b.mesh = newMesh;
+        }
+      }
+    } catch (err) {
+      // Expected for any building that doesn't have a GLB yet.
+      // Only log at debug level; primitive fallback handles gameplay.
+      // console.debug(`[ignisium] no GLB for ${type}`, err);
+    }
+  }));
+}
+
+// Kick off GLB loading immediately. Game boot does not block on this;
+// preloadBuildingGlbs() swaps meshes in-place once each load finishes.
+preloadBuildingGlbs();
+
+// ============================================================
 // BUILDING PLACEMENT
 // ============================================================
 function showZoneHexes(zoneId) {
@@ -988,10 +1088,13 @@ function placeBuilding(type, q, r, free = false, zoneId = 0) {
 
   const gen = buildingGenerators[type];
   if (!gen) return false;
-  const mesh = gen();
+  // Prefer a loaded GLB template if one is available; fall back to the
+  // primitive generator otherwise. Either returns a THREE.Group.
+  const glbTemplate = buildingGlbTemplates.get(type);
+  const mesh = glbTemplate ? glbTemplate.clone(true) : gen();
   const { x, z } = hexWorldPos(q, r, zoneId);
   mesh.position.set(x, 0.5, z);
-  mesh.userData = { type, q, r, zoneId, level: 1, def };
+  mesh.userData = { type, q, r, zoneId, level: 1, def, isGlb: !!glbTemplate };
   planetScene.add(mesh);
 
   const building = { type, q, r, zoneId, level: 1, mesh, def };
