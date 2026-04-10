@@ -171,6 +171,93 @@ The game's render loop auto-animates nodes by name:
 
 Name your GLB's child objects in Blender to match these, re-export, and the animations happen automatically.
 
+## Generation Flow
+
+```
+ CONCEPT ART                    SHAPE GENERATION                    TEXTURE GENERATION
+ ============                   ================                    ==================
+
+ ┌──────────┐    rembg          ┌──────────────┐                   ┌───────────────────┐
+ │  Input   │───birefnet───────>│  Background  │                   │  Mesh Decimation  │
+ │  Image   │   general         │  Removed     │                   │  600K -> 80K faces│
+ └──────────┘                   │  + Centered  │                   │  (fast_simplify)  │
+                                └──────┬───────┘                   └─────────┬─────────┘
+                                       │                                     │
+                                       v                                     v
+                                ┌──────────────┐                   ┌───────────────────┐
+                                │  Hunyuan3D-2 │                   │  xatlas UV Unwrap │
+                                │  DiT Diffusion│                  │  (parametrize)    │
+                                │  30 steps     │                  └─────────┬─────────┘
+                                │  ~8s on GPU   │                            │
+                                └──────┬───────┘                             v
+                                       │                           ┌───────────────────┐
+                                       v                           │  Delight Model    │
+                                ┌──────────────┐                   │  (InstructPix2Pix │
+                                │  Volume VAE  │                   │   50 steps, GPU)  │
+                                │  Decode      │                   └─────────┬─────────┘
+                                │  ~8s         │                             │
+                                └──────┬───────┘                             v
+                                       │                           ┌───────────────────┐
+                                       v                           │  Multi-view       │
+                                ┌──────────────┐                   │  Diffusion        │
+                                │  Marching    │                   │  (6 views, 30     │
+                                │  Cubes       │                   │   steps, GPU)     │
+                                │  (octree 256)│                   └─────────┬─────────┘
+                                └──────┬───────┘                             │
+                                       │                                     v
+                                       v                           ┌───────────────────┐
+                                ┌──────────────┐                   │  Texture Bake     │
+                                │  Mesh Cleanup│                   │  (back-project    │
+                                │  (keep largest│                  │   + inpaint seams) │
+                                │   component) │                   └─────────┬─────────┘
+                                └──────┬───────┘                             │
+                                       │                                     v
+                                       v                           ┌───────────────────┐
+                                ┌──────────────┐    if texture     │  Textured GLB     │
+                                │  Untextured  │───────on─────────>│  (albedo map      │
+                                │  Mesh        │                   │   baked into mesh) │
+                                └──────┬───────┘                   └─────────┬─────────┘
+                                       │                                     │
+                                       └──────────────┬──────────────────────┘
+                                                      │
+                                                      v
+                                               ┌─────────────┐
+                                               │  Export GLB  │
+                                               │  output/     │
+                                               └──────┬──────┘
+                                                      │
+                                                      v
+                                  ┌────────────────────────────────────────┐
+                                  │  Game Auto-Load                        │
+                                  │  public/assets/models/buildings/*.glb  │
+                                  │  + Stylized Building Shader            │
+                                  │  + Procedural Animations               │
+                                  └────────────────────────────────────────┘
+```
+
+### Prompt Queue Flow (end-to-end automation)
+
+```
+ ┌──────────┐   Ollama /    ┌──────────┐   Discord    ┌──────────┐   Download   ┌──────────┐
+ │ Subject  │──template────>│ MJ Prompt│───self-bot──>│ Midjourney│────────────>│ Concept  │
+ │ text     │               │ generated│   /imagine   │ generates │   upscaled  │ PNG      │
+ └──────────┘               └──────────┘              │ 4 images  │   image     └────┬─────┘
+                                                      │ + upscale │                  │
+                                                      └──────────┘                   │
+                                                                                     v
+                                                                     ┌───────────────────────┐
+                                                                     │ Shape + Texture        │
+                                                                     │ (same flow as above)   │
+                                                                     └───────────┬───────────┘
+                                                                                 │
+                                                                                 v
+                                                                     ┌───────────────────────┐
+                                                                     │ Auto-install GLB into  │
+                                                                     │ public/assets/models/  │
+                                                                     │ buildings/<type>.glb   │
+                                                                     └───────────────────────┘
+```
+
 ## Architecture
 
 ```

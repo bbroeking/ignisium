@@ -267,6 +267,101 @@ def run_generation(image, asset_name, use_texture=True,
     return result
 
 
+# --- Generation Queue ---
+import threading
+import queue as _queue_mod
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class GenJob:
+    id: int
+    image: Image.Image
+    asset_name: str
+    use_texture: bool
+    octree_resolution: int
+    inference_steps: int
+    guidance_scale: float
+    decimate_faces: int
+    remove_background: bool
+    state: str = "queued"       # queued | running | done | failed
+    glb_path: str = ""
+    status_log: str = ""
+    error: str = ""
+
+
+class GenerationQueue:
+    """Thread-safe queue that processes generation jobs one at a time."""
+
+    def __init__(self):
+        self._jobs: list[GenJob] = []
+        self._lock = threading.Lock()
+        self._next_id = 1
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._queue = _queue_mod.Queue()
+        self._worker.start()
+
+    def add(self, image, asset_name, use_texture, octree, steps, cfg,
+            decimate, remove_bg) -> GenJob:
+        with self._lock:
+            job = GenJob(
+                id=self._next_id, image=image, asset_name=asset_name,
+                use_texture=use_texture, octree_resolution=octree,
+                inference_steps=steps, guidance_scale=cfg,
+                decimate_faces=decimate, remove_background=remove_bg,
+            )
+            self._next_id += 1
+            self._jobs.append(job)
+        self._queue.put(job)
+        return job
+
+    def list_jobs(self) -> list[GenJob]:
+        with self._lock:
+            return list(self._jobs)
+
+    def format_table(self) -> list[list[str]]:
+        rows = []
+        for j in self.list_jobs():
+            rows.append([
+                str(j.id), j.asset_name, j.state,
+                Path(j.glb_path).name if j.glb_path else "",
+                j.error[:60] if j.error else "",
+            ])
+        return rows
+
+    def _worker_loop(self):
+        while True:
+            job = self._queue.get()
+            job.state = "running"
+            try:
+                glb_path, status = run_generation(
+                    image=job.image,
+                    asset_name=job.asset_name,
+                    use_texture=job.use_texture,
+                    octree_resolution=job.octree_resolution,
+                    inference_steps=job.inference_steps,
+                    guidance_scale=job.guidance_scale,
+                    decimate_faces=job.decimate_faces,
+                    remove_background=job.remove_background,
+                )
+                job.status_log = status
+                if glb_path:
+                    job.glb_path = glb_path
+                    job.state = "done"
+                else:
+                    job.state = "failed"
+                    job.error = "No GLB produced"
+            except Exception as e:
+                job.state = "failed"
+                job.error = str(e)
+                job.status_log = str(e)
+            self._queue.task_done()
+
+
+_gen_queue = GenerationQueue()
+
+
 # --- Animation helpers ---
 def _inspect_glb(glb_file):
     """Load a GLB and return its node tree as a readable string."""
@@ -476,6 +571,64 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                         bg_toggle],
                 outputs=[file_output, status_output],
             )
+
+            # --- Generation Queue ---
+            gr.Markdown("---\n### Generation Queue")
+            gr.Markdown(
+                "Add multiple images to the queue. They process one at a time "
+                "in the background while you keep working."
+            )
+
+            def _add_to_queue(image, asset_name, use_texture, octree, steps,
+                              cfg, decimate, remove_bg):
+                if image is None:
+                    return _gen_queue.format_table(), "Upload an image first"
+                job = _gen_queue.add(
+                    image, asset_name, use_texture,
+                    int(octree), int(steps), float(cfg),
+                    int(decimate), remove_bg,
+                )
+                return _gen_queue.format_table(), f"Added job #{job.id} ({job.asset_name})"
+
+            def _refresh_gen_queue():
+                return _gen_queue.format_table()
+
+            def _view_gen_job(evt: gr.SelectData):
+                jobs = _gen_queue.list_jobs()
+                if evt is None or evt.index is None:
+                    return ""
+                row = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+                if row >= len(jobs):
+                    return ""
+                j = jobs[row]
+                return (f"Job #{j.id} — {j.asset_name} [{j.state}]\n"
+                        f"GLB: {j.glb_path}\n"
+                        f"Error: {j.error}\n\n"
+                        f"{j.status_log}")
+
+            with gr.Row():
+                queue_add_btn = gr.Button("Add to Queue", variant="secondary")
+                queue_refresh_btn = gr.Button("Refresh")
+            queue_status = gr.Textbox(label="Queue action", interactive=False)
+            queue_table = gr.Dataframe(
+                headers=["#", "asset", "state", "result", "error"],
+                datatype=["str"] * 5, value=[], interactive=False,
+                row_count=(0, "dynamic"),
+                label="Queued generations (click row to view log)",
+            )
+            queue_log = gr.Textbox(
+                label="Job log", lines=10, max_lines=20, interactive=False,
+            )
+
+            queue_add_btn.click(
+                fn=_add_to_queue,
+                inputs=[image_input, asset_name_input, texture_toggle,
+                        octree_slider, steps_slider, cfg_slider,
+                        decimate_slider, bg_toggle],
+                outputs=[queue_table, queue_status],
+            )
+            queue_refresh_btn.click(fn=_refresh_gen_queue, outputs=queue_table)
+            queue_table.select(fn=_view_gen_job, outputs=queue_log)
 
         # ==============================================================
         # TAB 2: Prompt Queue (Midjourney / Discord)
