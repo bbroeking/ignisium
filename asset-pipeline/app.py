@@ -1,10 +1,8 @@
 """
 Ignisium Asset Pipeline
 -----------------------
-Simple Gradio UI for generating 3D GLB assets from concept images
-using Tencent's Hunyuan3D-2 model locally.
-
-Drop a concept image, name the asset, click generate. GLB lands in output/.
+Gradio UI for generating 3D GLB assets from concept images using
+Tencent's Hunyuan3D-2 model locally.
 
 Pipelines are loaded on demand and freed between phases so that the shape
 and texture models don't fight for VRAM on a 16 GB card.
@@ -23,9 +21,6 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 OUTPUT_DIR = SCRIPT_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Make sure the cloned Hunyuan3D-2 repo is importable.
-# It lives inside the YanWenKun portable runtime now, not directly under
-# asset-pipeline/, so check both locations.
 HUNYUAN_DIR = SCRIPT_DIR / "runtime" / "Hunyuan3D2_WinPortable" / "Hunyuan3D-2"
 if not HUNYUAN_DIR.exists():
     HUNYUAN_DIR = SCRIPT_DIR / "Hunyuan3D-2"
@@ -48,7 +43,6 @@ except ImportError:
     print("ERROR: PyTorch not installed. Run setup_windows.bat first.")
     sys.exit(1)
 
-# Verify imports are available (but don't load weights yet)
 try:
     from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
     print("Shape pipeline (hy3dgen.shapegen): importable")
@@ -63,11 +57,9 @@ try:
     _tex_available = True
 except ImportError as e:
     print(f"WARNING: Texture pipeline not importable: {e}")
-    print("Shape-only generation will still work.")
 
 print("\n" + "=" * 60)
 print("Ready. Open http://127.0.0.1:7860 in your browser.")
-print("Pipelines load on demand — first generation takes ~15s extra.")
 print("=" * 60)
 
 
@@ -93,98 +85,92 @@ def _load_texture():
     return pipe
 
 
-# --- Generation function ---
-def generate_3d(image, asset_name, use_texture, progress=gr.Progress()):
+# --- Generation function (yields status updates for real-time progress) ---
+def generate_3d(
+    image, asset_name, use_texture,
+    octree_resolution, inference_steps, guidance_scale,
+    decimate_faces,
+):
     if image is None:
-        return None, "ERROR: Please upload an image first."
+        yield None, "ERROR: Please upload an image first."
+        return
 
-    # Sanitize filename
     name = (asset_name or "asset").strip().replace(" ", "_")
-    name = "".join(c for c in name if c.isalnum() or c in "_-")
-    if not name:
-        name = "asset"
-
+    name = "".join(c for c in name if c.isalnum() or c in "_-") or "asset"
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     out_path = OUTPUT_DIR / f"{name}_{timestamp}.glb"
 
-    status = []
+    log = []
+    def _status(msg):
+        log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+        return "\n".join(log)
+
     start = time.time()
 
-    # Step 1: shape
-    progress(0.05, desc="Loading shape model...")
-    status.append(f"[{time.strftime('%H:%M:%S')}] Loading shape model...")
+    # --- Shape ---
+    yield None, _status("Loading shape model...")
     _free_vram()
     shape_pipe = _load_shape()
 
-    progress(0.15, desc="Generating 3D shape...")
-    status.append(f"[{time.strftime('%H:%M:%S')}] Generating shape from image...")
+    yield None, _status(f"Generating shape (octree={octree_resolution}, steps={inference_steps}, cfg={guidance_scale})...")
     try:
         mesh = shape_pipe(
             image=image,
-            num_inference_steps=30,
-            guidance_scale=7.5,
-            octree_resolution=256,
+            num_inference_steps=int(inference_steps),
+            guidance_scale=float(guidance_scale),
+            octree_resolution=int(octree_resolution),
             num_chunks=8000,
         )[0]
     except Exception as e:
-        return None, f"Shape generation failed: {e}"
-    shape_time = time.time() - start
-    status.append(f"    Shape done in {shape_time:.1f}s (verts={len(mesh.vertices)})")
+        yield None, _status(f"ERROR: Shape generation failed: {e}")
+        return
+    yield None, _status(f"  Shape done in {time.time()-start:.1f}s — verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
 
-    # Free shape VRAM before texture
     del shape_pipe
     _free_vram()
 
-    # Step 2: texture (optional)
+    # --- Texture ---
     if use_texture:
-        # Decimate mesh for texture baking — xatlas UV unwrap is O(n^2) on
-        # face count and takes 30+ min at 600K+ faces. 80K faces is fast
-        # (~1 min) and doesn't hurt texture quality since the 2048x2048
-        # texture map is the resolution bottleneck, not vertex density.
-        TARGET_FACES = 80000
-        if len(mesh.faces) > TARGET_FACES:
-            progress(0.45, desc="Decimating mesh for UV unwrap...")
-            status.append(f"[{time.strftime('%H:%M:%S')}] Decimating {len(mesh.faces)} -> {TARGET_FACES} faces...")
-            mesh = mesh.simplify_quadric_decimation(face_count=TARGET_FACES)
-            status.append(f"    Decimated: verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
+        target = int(decimate_faces)
+        if len(mesh.faces) > target:
+            yield None, _status(f"Decimating {len(mesh.faces)} → {target} faces...")
+            mesh = mesh.simplify_quadric_decimation(face_count=target)
+            yield None, _status(f"  Decimated: verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
 
-        progress(0.50, desc="Loading texture model...")
-        status.append(f"[{time.strftime('%H:%M:%S')}] Loading texture model...")
+        yield None, _status("Loading texture model...")
         tex_pipe = _load_texture()
         if tex_pipe is not None:
             tex_pipe.enable_model_cpu_offload()
-            progress(0.60, desc="Baking PBR textures...")
+            yield None, _status("Baking PBR textures (delight → UV unwrap → multiview → bake)...")
             tex_start = time.time()
-            status.append(f"[{time.strftime('%H:%M:%S')}] Baking textures...")
             try:
                 mesh = tex_pipe(mesh, image=image)
-                status.append(f"    Texture done in {time.time() - tex_start:.1f}s")
+                yield None, _status(f"  Texture done in {time.time()-tex_start:.1f}s")
             except Exception as e:
                 import traceback; traceback.print_exc()
-                status.append(f"    WARNING: Texture failed ({e}) — exporting untextured")
+                yield None, _status(f"  WARNING: Texture failed ({e}) — exporting untextured")
             del tex_pipe
             _free_vram()
         else:
-            status.append("    (Texture pipeline not available)")
+            yield None, _status("  (Texture pipeline not available)")
 
-    # Step 3: export
-    progress(0.90, desc="Exporting GLB...")
-    status.append(f"[{time.strftime('%H:%M:%S')}] Exporting GLB...")
+    # --- Export ---
+    yield None, _status("Exporting GLB...")
     try:
         mesh.export(str(out_path))
     except Exception as e:
-        return None, f"Export failed: {e}"
+        yield None, _status(f"ERROR: Export failed: {e}")
+        return
 
     total = time.time() - start
-    status.append(f"\nDone in {total:.1f}s")
-    status.append(f"Saved: {out_path}")
-
-    return str(out_path), "\n".join(status)
+    _status(f"Done in {total:.1f}s")
+    _status(f"Saved: {out_path}")
+    yield str(out_path), "\n".join(log)
 
 
 # --- Gradio UI ---
 CUSTOM_CSS = """
-.gradio-container { max-width: 1100px !important; margin: 0 auto; }
+.gradio-container { max-width: 1200px !important; margin: 0 auto; }
 #title { text-align: center; color: #00d4ff; font-family: monospace; }
 #subtitle { text-align: center; color: #888; }
 """
@@ -192,45 +178,76 @@ CUSTOM_CSS = """
 with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.Base()) as app:
     gr.Markdown("# Ignisium Asset Pipeline", elem_id="title")
     gr.Markdown(
-        "Upload a concept image of a building or unit. Generates a 3D GLB model.",
+        "Upload a concept image → 3D GLB model. Hunyuan3D-2 shape + optional PBR textures.",
         elem_id="subtitle",
     )
 
     with gr.Row():
+        # --- Left: inputs ---
         with gr.Column(scale=1):
             image_input = gr.Image(
                 type="pil",
                 label="Concept Image (PNG with transparent bg preferred)",
-                height=400,
+                height=380,
             )
             asset_name_input = gr.Textbox(
                 label="Asset Name",
                 value="command_center",
-                info="Alphanumeric, underscores OK. Timestamp auto-appended.",
+                info="Alphanumeric + underscores. Timestamp auto-appended.",
             )
             texture_toggle = gr.Checkbox(
                 label="Generate PBR textures",
                 value=True,
-                info="Adds ~2-5 min for texture baking. Untextured shape-only takes ~20s.",
+                info="Adds ~90s. Shape-only takes ~20s.",
             )
+
+            with gr.Accordion("Shape parameters", open=False):
+                octree_slider = gr.Slider(
+                    minimum=128, maximum=512, value=256, step=64,
+                    label="Octree resolution",
+                    info="Marching-cubes grid. 256=fast (20s), 384=detailed (slower), 512=max (very slow).",
+                )
+                steps_slider = gr.Slider(
+                    minimum=15, maximum=60, value=30, step=5,
+                    label="Inference steps",
+                    info="Diffusion steps. 30=default, 50=higher quality, 60=diminishing returns.",
+                )
+                cfg_slider = gr.Slider(
+                    minimum=3.0, maximum=12.0, value=7.5, step=0.5,
+                    label="Guidance scale",
+                    info="How strictly to follow the input. 7.5=default, 9-10=sharper adherence.",
+                )
+
+            with gr.Accordion("Texture parameters", open=False):
+                decimate_slider = gr.Slider(
+                    minimum=20000, maximum=200000, value=80000, step=10000,
+                    label="Decimate target faces",
+                    info="Mesh is decimated before UV unwrap. 80K=fast (~1 min), 200K=detailed (~5 min).",
+                )
+
             generate_btn = gr.Button(
                 "Generate 3D Model",
                 variant="primary",
                 size="lg",
             )
 
+        # --- Right: outputs ---
         with gr.Column(scale=1):
             file_output = gr.File(label="Generated GLB")
             status_output = gr.Textbox(
-                label="Status",
-                lines=15,
-                max_lines=25,
+                label="Status (live updates)",
+                lines=18,
+                max_lines=30,
                 interactive=False,
             )
 
     generate_btn.click(
         fn=generate_3d,
-        inputs=[image_input, asset_name_input, texture_toggle],
+        inputs=[
+            image_input, asset_name_input, texture_toggle,
+            octree_slider, steps_slider, cfg_slider,
+            decimate_slider,
+        ],
         outputs=[file_output, status_output],
     )
 
@@ -239,9 +256,9 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
         ---
         ### Workflow
         1. Generate concept art with Midjourney/SDXL (see `PROMPTS.md`)
-        2. Upload here, click Generate
-        3. GLB file saved to `output/` — copy into your game's assets folder
-        4. Load in Three.js with `GLTFLoader`
+        2. Upload here, tweak params, click Generate
+        3. GLB saved to `output/` — copy to `public/assets/models/buildings/<type>.glb`
+        4. Game auto-loads GLBs on startup and swaps primitive placeholders
         """
     )
 

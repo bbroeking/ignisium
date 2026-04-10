@@ -9,6 +9,7 @@ import {
   createLavaShader, createSunShader, createAtmosphereShader,
   createShieldShader, createEnergyFlowShader, createNebulaShader,
   createHologramShader, createStarfieldShader,
+  createTexturedBuildingShader,
   HeatDistortionShader, VignetteGradeShader,
 } from './shaders.js';
 
@@ -278,6 +279,7 @@ composer.addPass(gradePass);
 let lavaShader = createLavaShader();
 const sunShader = createSunShader();
 const hologramShader = createHologramShader();
+const buildingShaders = []; // track textured building shaders for uTime updates
 const allShaders = [lavaShader, sunShader, hologramShader];
 
 let lavaMesh = null;
@@ -971,11 +973,19 @@ function normalizeBuildingGlb(root) {
   box2.getCenter(center);
   root.position.x -= center.x;
   root.position.z -= center.z;
-  // Shadow + culling tweaks
+  // Apply the stylized building shader to each mesh. If the mesh has a
+  // texture map (from Hunyuan3D PBR baking), feed it as the albedo. If
+  // not, the shader falls back to a neutral grey.
   root.traverse(c => {
     if (c.isMesh) {
       c.castShadow = true;
       c.receiveShadow = true;
+      const albedoMap = c.material?.map || null;
+      if (albedoMap) {
+        const shader = createTexturedBuildingShader(albedoMap);
+        buildingShaders.push(shader);
+        c.material = shader;
+      }
     }
   });
   return root;
@@ -2108,6 +2118,7 @@ function animate() {
 
   // Update all shader uniforms
   allShaders.forEach(s => { if (s.uniforms?.uTime) s.uniforms.uTime.value = time; });
+  buildingShaders.forEach(s => { if (s.uniforms?.uTime) s.uniforms.uTime.value = time; });
   if (heatPass.uniforms?.uTime) heatPass.uniforms.uTime.value = time;
   if (gradePass.uniforms?.uTime) gradePass.uniforms.uTime.value = time;
 

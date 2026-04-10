@@ -942,6 +942,114 @@ export function createBuildingShader(baseColor = new THREE.Color(0x3a3a4a), emis
 }
 
 // ============================================================
+// TEXTURED BUILDING SHADER — for GLBs from Hunyuan3D pipeline
+// ============================================================
+// Reads the albedo texture from the GLB, then layers the same
+// toon lighting, panel lines, weathering, rim light, and lava
+// underlight that createBuildingShader() uses for primitives.
+// This gives imported assets the same stylized RTS look as the
+// handmade placeholder buildings.
+export function createTexturedBuildingShader(albedoMap) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uAlbedo: { value: albedoMap },
+      uMetalness: { value: 0.7 },
+      uRoughness: { value: 0.35 },
+      uTime: { value: 0 },
+      uLightDir: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
+      uLightColor: { value: new THREE.Color(0xffaa66) },
+      uAmbientColor: { value: new THREE.Color(0x221111) },
+      uRimColor: { value: new THREE.Color(0x4466aa) },
+      uTeamColor: { value: new THREE.Color(0x00eeff) },
+      uTeamIntensity: { value: 0.0 },
+    },
+    vertexShader: `
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      varying vec3 vWorldPos;
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vNormal = normalize(normalMatrix * normal);
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vViewDir = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uAlbedo;
+      uniform float uMetalness;
+      uniform float uRoughness;
+      uniform float uTime;
+      uniform vec3 uLightDir;
+      uniform vec3 uLightColor;
+      uniform vec3 uAmbientColor;
+      uniform vec3 uRimColor;
+      uniform vec3 uTeamColor;
+      uniform float uTeamIntensity;
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      varying vec3 vWorldPos;
+      varying vec2 vUv;
+
+      ${NOISE_LIB}
+
+      void main() {
+        vec3 baseColor = texture2D(uAlbedo, vUv).rgb;
+        vec3 N = normalize(vNormal);
+        vec3 V = normalize(vViewDir);
+        vec3 L = normalize(uLightDir);
+        vec3 H = normalize(L + V);
+
+        // === STYLIZED DIFFUSE (3-band toon) ===
+        float NdotL = dot(N, L);
+        float diffuse = smoothstep(-0.1, 0.1, NdotL) * 0.4 + 0.1;
+        diffuse += smoothstep(0.3, 0.5, NdotL) * 0.3;
+        diffuse += smoothstep(0.7, 0.9, NdotL) * 0.2;
+
+        // === SPECULAR ===
+        float NdotH = max(dot(N, H), 0.0);
+        float spec = pow(NdotH, mix(8.0, 64.0, 1.0 - uRoughness));
+        spec = smoothstep(0.4, 0.6, spec) * uMetalness;
+
+        // === PANEL LINES (from world pos) ===
+        vec3 wp = vWorldPos * 2.0;
+        float panelX = abs(fract(wp.x) - 0.5);
+        float panelY = abs(fract(wp.y) - 0.5);
+        float panelZ = abs(fract(wp.z) - 0.5);
+        float panel = min(min(panelX, panelY), panelZ);
+        float panelLine = 1.0 - smoothstep(0.0, 0.04, panel);
+        panelLine *= 0.12;
+
+        // === WEATHERING ===
+        float wear = snoise(vWorldPos * 4.0) * 0.5 + 0.5;
+        wear *= 0.08;
+
+        // === RIM LIGHT ===
+        float rim = 1.0 - max(dot(N, V), 0.0);
+        rim = pow(rim, 3.0) * 0.5;
+
+        // === LAVA UNDERLIGHT ===
+        float lavaBounce = max(-N.y, 0.0) * 0.25;
+        vec3 lavaColor = vec3(1.0, 0.3, 0.05) * lavaBounce;
+
+        // === COMBINE ===
+        vec3 color = baseColor * (1.0 - panelLine - wear);
+        color *= uAmbientColor * 1.5 + uLightColor * diffuse;
+        color += uLightColor * spec * 0.6;
+        color += uRimColor * rim;
+        color += lavaColor;
+        // Team color accent (driven by game code)
+        color += uTeamColor * uTeamIntensity * rim * 2.0;
+
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+  });
+}
+
+// ============================================================
 // POST-PROCESSING SHADERS
 // ============================================================
 
