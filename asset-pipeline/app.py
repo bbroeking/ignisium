@@ -305,19 +305,19 @@ def _inspect_glb(glb_file):
     return "\n".join(lines)
 
 
-def _install_unirig():
-    """Clone and install UniRig from source for local auto-rigging."""
+def _setup_unirig():
+    """Clone UniRig and show setup instructions."""
     import subprocess
     log = []
     unirig_dir = SCRIPT_DIR / "runtime" / "UniRig"
 
     log.append("UniRig (SIGGRAPH 2025 — auto-rigging for arbitrary 3D shapes)")
-    log.append("Repository: github.com/VAST-AI-Research/UniRig")
+    log.append("github.com/VAST-AI-Research/UniRig")
     log.append("")
 
-    # Check if already cloned
-    if (unirig_dir / "setup.py").exists() or (unirig_dir / "pyproject.toml").exists():
-        log.append(f"Already cloned at {unirig_dir}")
+    # Step 1: Clone
+    if (unirig_dir / "requirements.txt").exists():
+        log.append(f"[OK] Already cloned at {unirig_dir}")
     else:
         log.append(f"Cloning into {unirig_dir}...")
         try:
@@ -326,55 +326,50 @@ def _install_unirig():
                  str(unirig_dir)],
                 capture_output=True, text=True, timeout=120,
             )
-            if result.returncode != 0:
-                log.append(f"git clone failed: {result.stderr.strip()}")
-                log.append("")
-                log.append("Manual steps:")
-                log.append(f"  git clone https://github.com/VAST-AI-Research/UniRig {unirig_dir}")
+            if result.returncode == 0:
+                log.append("[OK] Cloned successfully.")
+            else:
+                log.append(f"[FAIL] git clone failed: {result.stderr.strip()}")
                 return "\n".join(log)
-            log.append("Cloned successfully.")
         except FileNotFoundError:
-            log.append("ERROR: git not found. Install Git for Windows first.")
+            log.append("[FAIL] git not found. Install Git for Windows.")
             return "\n".join(log)
         except Exception as e:
-            log.append(f"ERROR: {e}")
+            log.append(f"[FAIL] {e}")
             return "\n".join(log)
 
-    # Install with pip
+    # Step 2: Show manual setup instructions
+    # UniRig needs its own conda env (Python 3.11, not 3.12)
     log.append("")
-    log.append("Installing dependencies (this may take a few minutes)...")
-    py = str(SCRIPT_DIR / "runtime" / "Hunyuan3D2_WinPortable" /
-             "python_standalone" / "python.exe")
-    if not Path(py).exists():
-        py = "pip"
-        install_cmd = ["pip", "install", "-e", str(unirig_dir)]
-    else:
-        install_cmd = [py, "-m", "pip", "install", "-e", str(unirig_dir)]
-
-    try:
-        result = subprocess.run(
-            install_cmd, capture_output=True, text=True, timeout=600,
-        )
-        if result.returncode == 0:
-            log.append("UniRig installed successfully!")
-            # Show last few lines of output
-            lines = result.stdout.strip().split("\n")
-            for line in lines[-5:]:
-                log.append(f"  {line}")
-        else:
-            log.append("pip install failed:")
-            err_lines = result.stderr.strip().split("\n")
-            for line in err_lines[-10:]:
-                log.append(f"  {line}")
-            log.append("")
-            log.append("You may need to install dependencies manually.")
-            log.append("Check the README at: " + str(unirig_dir / "README.md"))
-    except subprocess.TimeoutExpired:
-        log.append("Install timed out (>10 min). Run manually:")
-        log.append(f"  cd {unirig_dir}")
-        log.append(f"  {py} -m pip install -e .")
-    except Exception as e:
-        log.append(f"ERROR: {e}")
+    log.append("=" * 50)
+    log.append("MANUAL SETUP REQUIRED")
+    log.append("=" * 50)
+    log.append("")
+    log.append("UniRig needs Python 3.11 + CUDA-specific packages that")
+    log.append("can't share the Hunyuan3D portable runtime (Python 3.12).")
+    log.append("It needs its own conda environment.")
+    log.append("")
+    log.append("Run these in a terminal (Anaconda Prompt or PowerShell):")
+    log.append("")
+    log.append(f"  cd {unirig_dir}")
+    log.append("  conda create -n unirig python=3.11 -y")
+    log.append("  conda activate unirig")
+    log.append("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124")
+    log.append("  pip install -r requirements.txt")
+    log.append("  pip install spconv-cu120")
+    log.append("  pip install torch_scatter torch_cluster -f https://data.pyg.org/whl/torch-2.3.0+cu124.html")
+    log.append("")
+    log.append("To rig a mesh:")
+    log.append(f"  conda activate unirig")
+    log.append(f"  cd {unirig_dir}")
+    log.append("  python run.py --input your_mesh.glb --output rigged.glb")
+    log.append("")
+    log.append("Accepts: .glb, .obj, .fbx, .vrm")
+    log.append("Outputs: skeleton + skinning weights")
+    log.append("")
+    log.append("NOTE: flash_attn often fails to build on Windows.")
+    log.append("If it errors, try: pip install flash-attn --no-build-isolation")
+    log.append("or skip it (UniRig may still work without it).")
 
     return "\n".join(log)
 
@@ -698,13 +693,13 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                         "Requires: Python, PyTorch, CUDA. "
                         "Your RTX 4080 + 96GB RAM can handle it."
                     )
-                    unirig_install_btn = gr.Button("Install UniRig")
+                    unirig_setup_btn = gr.Button("Clone UniRig + Show Setup")
                     unirig_status = gr.Textbox(
-                        label="UniRig install log", lines=10,
-                        interactive=False,
+                        label="UniRig setup instructions", lines=18,
+                        max_lines=30, interactive=False,
                     )
-                    unirig_install_btn.click(
-                        fn=_install_unirig, outputs=unirig_status,
+                    unirig_setup_btn.click(
+                        fn=_setup_unirig, outputs=unirig_status,
                     )
 
 
