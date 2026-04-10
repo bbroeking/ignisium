@@ -38,7 +38,12 @@ try:
     print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"CUDA device: {torch.cuda.get_device_name(0)}")
-        print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print(f"VRAM: {vram_gb:.1f} GB")
+        # Reserve ~10% VRAM for Windows desktop rendering so the machine
+        # doesn't become unresponsive during heavy GPU inference.
+        torch.cuda.set_per_process_memory_fraction(0.9)
+        print(f"VRAM limit: {vram_gb * 0.9:.1f} GB (90%, 10% reserved for OS)")
 except ImportError:
     print("ERROR: PyTorch not installed. Run setup_windows.bat first.")
     sys.exit(1)
