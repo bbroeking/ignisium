@@ -1,239 +1,235 @@
 # Ignisium Asset Pipeline
 
-Local image-to-3D generation for Ignisium buildings. Drop a concept image in, get a GLB file out.
+Local AI-powered 3D asset generation for the Ignisium RTS game. Generates textured GLB models from concept images using Hunyuan3D-2, with an optional Midjourney prompt queue for automated concept art generation.
 
-Uses **Hunyuan3D-2** (Tencent) for the actual generation. Wraps it in a simple Gradio web UI.
+**Everything runs locally on your GPU.** No cloud APIs required for core functionality.
 
----
+## Features
 
-## What you'll be able to do
+- **Image to 3D** -- Drop a concept image, get a textured GLB in ~2 minutes
+- **PBR Textures** -- Automatic texture baking with delight, multi-view diffusion, and UV unwrapping
+- **Prompt Queue** -- Generate Midjourney prompts, submit via Discord, auto-download and convert to 3D
+- **Animation Tools** -- GLB node inspector, procedural animation reference, UniRig integration for character rigging
+- **Game Integration** -- Auto-installs GLBs into the game's asset folder; stylized building shader applied automatically
+- **Tunable Parameters** -- Octree resolution, inference steps, guidance scale, decimation target all exposed in UI
 
-1. Generate concept art of a building in Midjourney/SDXL (prompts in `PROMPTS.md`)
-2. Drop the image into the UI, click Generate
-3. 30 seconds to a few minutes later, a GLB file appears in `output/`
-4. Copy GLB into your game, load via `GLTFLoader`
+## Requirements
 
----
+### Hardware
 
-## Windows Setup (Step-by-Step)
+- **GPU:** NVIDIA RTX 4080 16GB (or similar; 12GB minimum, 16GB recommended)
+- **RAM:** 32GB minimum, 96GB recommended (model weights stream from RAM to VRAM)
+- **Storage:** ~40GB for model weights + runtime
 
-### Hardware requirements
+### Software
 
-- **NVIDIA GPU with 12GB+ VRAM** (16GB+ recommended)
-  - RTX 3060 12GB, 3080, 4070, 4080, 4090 all work well
-  - AMD GPUs: NOT supported (Hunyuan3D needs CUDA)
-- **16GB+ system RAM**
-- **60GB free disk space** (model weights are ~50GB)
-- **Windows 10 or 11**
+- **Windows 10/11** with Developer Mode enabled (Settings > Update & Security > For developers)
+- **NVIDIA drivers** with CUDA 12.x support
+- **MSVC Build Tools 2022** (for texture pipeline C++ extensions)
 
-### Software prerequisites
+## Setup
 
-Install these **in this order** before running the setup script:
+### 1. Install the Hunyuan3D-2 Portable Runtime
 
-#### 1. Python 3.10
-
-Download from https://www.python.org/downloads/release/python-31011/
-
-Scroll down, grab the "Windows installer (64-bit)".
-
-**CRITICAL:** During install, check the box that says **"Add python.exe to PATH"**. If you miss this, uninstall and redo.
-
-Verify in a new PowerShell window:
-```
-python --version
-```
-Should print `Python 3.10.x`.
-
-> Why 3.10 specifically? Some Hunyuan3D deps don't build on 3.11/3.12 yet.
-
-#### 2. Git for Windows
-
-Download from https://git-scm.com/download/win
-
-Accept all defaults during install.
-
-Verify:
-```
-git --version
-```
-
-#### 3. CUDA Toolkit 12.4
-
-Download from https://developer.nvidia.com/cuda-12-4-0-download-archive
-
-- Select: Windows → x86_64 → 11 → exe (local)
-- Run the installer, accept defaults (the "Express" install is fine)
-- Reboot after install
-
-Verify:
-```
-nvcc --version
-```
-Should print a CUDA 12.4 version line.
-
-> CUDA 12.4 specifically matches the PyTorch wheel we install. If you have a different CUDA version already, you may need to match it in `setup_windows.bat`.
-
-#### 4. Visual Studio Build Tools (for building CUDA extensions)
-
-Download from https://visualstudio.microsoft.com/visual-cpp-build-tools/
-
-Run the installer, select **"Desktop development with C++"** workload, click Install.
-
-This is needed to compile Hunyuan3D's custom CUDA kernels. Without it, texture generation will fail at the build step.
-
-### Run the setup script
-
-1. **Copy the entire `asset-pipeline` folder** from this project to your Windows machine. You can zip it up on your Mac, transfer it however you like (USB, cloud drive, git clone the project).
-
-2. Open PowerShell **as Administrator** (right-click PowerShell → Run as administrator).
-
-3. `cd` into the folder:
-   ```
-   cd C:\path\to\asset-pipeline
-   ```
-
-4. Run the setup script:
-   ```
-   .\setup_windows.bat
-   ```
-
-5. The script will:
-   - Verify prerequisites
-   - Create a Python virtual environment
-   - Install PyTorch with CUDA 12.4 support
-   - Install Gradio and supporting libraries
-   - Clone `Hunyuan3D-2` from GitHub
-   - Install Hunyuan3D's Python dependencies
-   - Build the custom CUDA ops (`custom_rasterizer`, `differentiable_renderer`)
-
-6. Total time: **20–45 minutes**, mostly download time. Grab coffee.
-
-7. When it finishes you'll see "Setup complete!".
-
----
-
-## Using it
-
-1. Double-click `run.bat` (or run it from PowerShell).
-
-2. First launch downloads ~10GB of model weights from HuggingFace. This is a one-time thing.
-
-3. When you see "Ready. Open http://127.0.0.1:7860", open that URL in your browser.
-
-4. The UI has three inputs:
-   - **Concept Image**: drag and drop a PNG
-   - **Asset Name**: e.g. `command_center`, `shipyard`
-   - **Generate PBR textures**: checked by default. Uncheck if texture generation fails.
-
-5. Click **Generate 3D Model**. Wait 1–5 minutes.
-
-6. When done, a GLB file appears in the right column. Click to download, or check the `output/` folder — it's saved with a timestamp (e.g., `command_center_20260409_143022.glb`).
-
----
-
-## The full workflow for Ignisium buildings
+Download [YanWenKun/Hunyuan3D-2-WinPortable](https://github.com/YanWenKun/Hunyuan3D-2-WinPortable/releases/latest) (cu126 v4 or later) and extract it so the directory structure is:
 
 ```
-┌─────────────────────────────────────────────────┐
-│ 1. Write a prompt (see PROMPTS.md)              │
-└──────────────────┬──────────────────────────────┘
-                   ↓
-┌─────────────────────────────────────────────────┐
-│ 2. Generate concept art                         │
-│    - Midjourney / SDXL / DALL-E                 │
-│    - Pick the best variant                      │
-│    - Save as PNG                                │
-└──────────────────┬──────────────────────────────┘
-                   ↓
-┌─────────────────────────────────────────────────┐
-│ 3. This tool (Hunyuan3D-2)                      │
-│    - Upload image, name it, click generate      │
-│    - Wait 1–5 min                               │
-└──────────────────┬──────────────────────────────┘
-                   ↓
-┌─────────────────────────────────────────────────┐
-│ 4. Cleanup in Blender (optional)                │
-│    - Decimate to ~2000 tris                     │
-│    - Fix normals                                │
-│    - Re-export GLB                              │
-└──────────────────┬──────────────────────────────┘
-                   ↓
-┌─────────────────────────────────────────────────┐
-│ 5. Optimize with gltfpack                       │
-│    - npx gltfpack -i in.glb -o out.glb -cc -tc  │
-│    - Draco compression, smaller textures        │
-└──────────────────┬──────────────────────────────┘
-                   ↓
-┌─────────────────────────────────────────────────┐
-│ 6. Copy to game's assets folder                 │
-│    - ../assets/models/buildings/command_center.glb │
-└──────────────────┬──────────────────────────────┘
-                   ↓
-┌─────────────────────────────────────────────────┐
-│ 7. Load in main.js                              │
-│    - new GLTFLoader().load('assets/...', ...)   │
-│    - Replace the primitive-based generator      │
-└─────────────────────────────────────────────────┘
+asset-pipeline/
+  runtime/
+    Hunyuan3D2_WinPortable/
+      python_standalone/
+        python.exe
+      Hunyuan3D-2/
+        hy3dgen/
+      HuggingFaceHub/
+      ...
 ```
 
----
+### 2. Enable Windows Developer Mode
 
-## Troubleshooting
+**Required** -- HuggingFace model downloads will hard-fail without this.
 
-### "Python not found"
-You didn't check "Add Python to PATH" during install. Reinstall Python, check the box.
+Settings > Update & Security > For developers > Developer Mode > On
 
-### "nvcc not found" warning
-CUDA Toolkit not installed or not in PATH. Reinstall from the link above and reboot.
+Verify in PowerShell:
 
-### `custom_rasterizer` build fails
-This is the most common issue. Causes:
-- Visual Studio Build Tools not installed (install the C++ workload)
-- CUDA Toolkit version mismatch with PyTorch (we use 12.4 — match it)
-- Not running PowerShell as Administrator
+```powershell
+(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' AllowDevelopmentWithoutDevLicense).AllowDevelopmentWithoutDevLicense
+```
 
-If it fails, the tool **still works** — you just won't get PBR textures. Untextured meshes are fine; you can paint them in Blender.
+Should return `1`.
 
-### "CUDA out of memory" during generation
-- Close other apps that use the GPU (browsers, games)
-- Lower the generation resolution in `app.py` (Hunyuan3D-2 has a config for this)
-- Upgrade to `Hunyuan3D-2mini` which uses less VRAM
+### 3. Build Texture Extensions (one time)
 
-### Generation takes forever
-- Make sure you're using CUDA, not CPU. The app prints `CUDA available: True` at startup.
-- First run is slower because model weights are downloading.
+The texture pipeline needs C++ extensions compiled against the portable's Python/PyTorch:
 
-### UI won't open in browser
-- Check the terminal for errors
-- Manually go to http://127.0.0.1:7860
-- If port 7860 is taken, edit `app.py` and change the port number at the bottom
+```cmd
+asset-pipeline\build_extensions.bat
+```
 
----
+Requires MSVC Build Tools 2022. Builds `custom_rasterizer` and `DifferentiableRenderer` into the portable's site-packages.
 
-## Alternative: Pinokio (easier, less control)
+### 4. Install Fast Simplification (one time)
 
-If the setup script is too much pain, use **Pinokio** instead:
+```cmd
+runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe -m pip install fast-simplification
+```
 
-1. Download from https://pinokio.computer
-2. Install the app
-3. Open it, go to Discover tab, search "Hunyuan3D-2"
-4. Click Download, wait
-5. Click Start — opens the same Gradio UI at http://127.0.0.1:7860
+### 5. (Optional) Discord / Midjourney Integration
 
-Pinokio handles all the Python/CUDA/dependency stuff automatically. The tradeoff is you don't have the custom wrapper — just Tencent's default UI. You still get GLB files out, you just have to manually copy them into your game.
+Copy `.env.example` to `.env` and fill in:
 
----
+```
+DISCORD_TOKEN=your_discord_self_bot_token
+DISCORD_CHANNEL_ID=channel_where_midjourney_bot_lives
+OLLAMA_MODEL=llama3.1    # optional, for AI-generated MJ prompts
+```
 
-## Files in this folder
+Without these, the Prompt Queue tab still works -- it generates prompts and waits for you to manually paste a PNG into `inbox/<job_id>.png`.
 
-| File | Purpose |
-|------|---------|
-| `README.md` | This file |
-| `app.py` | Gradio UI + generation logic |
-| `requirements.txt` | Base Python deps (before Hunyuan3D-2's own deps) |
-| `setup_windows.bat` | One-time setup script |
-| `run.bat` | Launcher |
-| `PROMPTS.md` | Concept art prompts for every Ignisium building |
-| `output/` | Generated GLB files land here |
-| `Hunyuan3D-2/` | Created by setup script — the cloned repo |
-| `venv/` | Created by setup script — Python environment |
+## Usage
+
+### Launch
+
+```cmd
+cd asset-pipeline
+run.bat
+```
+
+Opens at http://127.0.0.1:7860 with three tabs.
+
+### Tab 1: Generate
+
+1. Upload a concept image (PNG with transparent background works best)
+2. Name the asset (e.g., `command_center`)
+3. Adjust parameters if needed:
+   - **Octree resolution**: 256 (fast, ~20s) / 384 (detailed) / 512 (max, slow)
+   - **Inference steps**: 30 (default) / 50 (higher quality)
+   - **Guidance scale**: 7.5 (default) / 9-10 (sharper adherence to input)
+   - **Decimate faces**: 80K (fast UV unwrap) / 200K (more detail, slower)
+4. Check "Generate PBR textures" for textured output (~90s extra)
+5. Click Generate -- live status updates in the right panel
+
+Output GLBs land in `asset-pipeline/output/`.
+
+### Tab 2: Prompt Queue
+
+End-to-end pipeline: describe a building in plain text, get a game-ready GLB.
+
+1. Pick a building from the dropdown (auto-fills subject + asset name) or write custom
+2. Choose quality preset (fast / balanced / high / max)
+3. Click "Add to queue"
+
+The queue runs: generate MJ prompt > submit to Discord > wait for upscale > download image > run Hunyuan3D-2 > install GLB into game.
+
+Without Discord token: stops at "prompt ready". Copy the prompt to Midjourney manually, then drop the resulting PNG into `inbox/<job_id>.png`.
+
+### Tab 3: Animations
+
+- **GLB Inspector**: Upload a GLB to see its node tree and which nodes the game animates
+- **Building Animations**: Procedural (no rig needed) -- name child nodes in Blender to match the game's animation hooks
+- **Character Rigging**: Install UniRig (SIGGRAPH 2025) for local GPU-based auto-rigging
+
+## Game Integration
+
+### Auto-loading GLBs
+
+Copy a GLB to `public/assets/models/buildings/<type>.glb` where `<type>` matches a key in `BUILDING_GLBS` in `main.js`:
+
+```
+command_center, thermal_extractor, mineral_drill, habitat_pod,
+research_lab, warehouse, barracks, defense_turret, shipyard,
+trade_depot, shield_gen
+```
+
+The game auto-loads these at startup and swaps primitive placeholder meshes in-place.
+
+### Stylized Building Shader
+
+Imported GLBs automatically get a custom shader matching the game's visual style:
+
+- 3-band toon diffuse lighting
+- Toon specular highlights
+- Procedural panel lines
+- Noise-based weathering
+- Rim light
+- Lava underlight (volcanic planet surface)
+- Team-color accent channel
+
+### Building Animations
+
+The game's render loop auto-animates nodes by name:
+
+| Node Name | Animation |
+|---|---|
+| `drill-arm` | Continuous Y rotation |
+| `drill-bit` | Continuous Z rotation |
+| `turret-barrel` | Sinusoidal Y scan |
+| `turret-light` | Pulsing scale |
+| `holo-display` | Opacity pulse + slow rotation |
+| `trade-pad` | Slow Y rotation |
+
+Name your GLB's child objects in Blender to match these, re-export, and the animations happen automatically.
+
+## Architecture
+
+```
+asset-pipeline/
+  app.py              # Gradio UI (3 tabs: Generate, Queue, Animations)
+  pipeline_queue.py   # End-to-end queue: prompt -> MJ -> 3D -> install
+  prompts.py          # Building prompt templates for Midjourney
+  build_extensions.bat # One-time C++ extension build for texture pipeline
+  run.bat             # Launch script (sets up env vars + portable Python)
+  .env.example        # Discord/Ollama config template
+  inbox/              # Drop PNGs here for manual queue jobs
+  output/             # Generated GLBs land here
+
+runtime/
+  Hunyuan3D2_WinPortable/   # YanWenKun portable (not in git)
+    python_standalone/       # Embedded Python 3.12 + PyTorch + CUDA
+    Hunyuan3D-2/             # Hunyuan3D-2.0 model source
+    HuggingFaceHub/          # HF model weight cache
+```
+
+## Performance
+
+Benchmarks on RTX 4080 16GB / 96GB RAM / Windows 10:
+
+| Step | Time |
+|---|---|
+| Shape generation (octree 256, 30 steps) | ~20s |
+| Mesh decimation (600K -> 80K faces) | <1s |
+| Texture pipeline load | ~15s |
+| PBR texture baking (delight + multiview + UV + bake) | ~75s |
+| **Total (shape + texture)** | **~2 min** |
+| Shape only (no texture) | ~20s |
+
+## Known Issues & Troubleshooting
+
+### "WinError 1314: A required privilege is not held"
+
+Enable Windows Developer Mode. See Setup step 2.
+
+### Shape generation hangs after "Volume Decoding: 100%"
+
+Octree resolution too high. Use 256 (default). Marching cubes at 384+ is CPU-bound and very slow with no progress bar.
+
+### Texture generation seems stuck (GPU at 1%)
+
+The texture pipeline must run on GPU via `enable_model_cpu_offload()` (called by default). If GPU stays at 1% for >2 min during texture gen, restart the app.
+
+### Texture pipeline VAE warning
+
+`diffusion_pytorch_model.safetensors not found` -- cosmetic. Falls back to pickle format successfully.
+
+### First run is slow
+
+Downloads ~20GB of model weights into `HuggingFaceHub/`. Subsequent runs use the cache.
+
+### mmgp profile thrashing (if using Hunyuan3D-2.1)
+
+Default profile 5 with 2200 MB budget is too aggressive for 16GB GPUs. Change to profile 3 or budget 8000 MB. Not applicable to the current 2.0-based pipeline.
+
+## License
+
+Asset pipeline code is MIT. Hunyuan3D-2 model weights are under the [Tencent Hunyuan Community License](https://github.com/Tencent/Hunyuan3D-2/blob/main/LICENSE).
