@@ -190,13 +190,18 @@ def generate_3d(
     _free_vram()
     shape_pipe = _load_shape()
 
-    yield None, _status(f"Generating shape (octree={octree_resolution}, steps={inference_steps}, cfg={guidance_scale})...")
+    oct_res = int(octree_resolution)
+    if oct_res > 256:
+        yield None, _status(f"WARNING: octree {oct_res} makes surface extraction very slow (5-30 min).")
+        yield None, _status(f"  Use 256 for fast results. Continuing with {oct_res}...")
+
+    yield None, _status(f"Generating shape (octree={oct_res}, steps={inference_steps}, cfg={guidance_scale})...")
     try:
         mesh = shape_pipe(
             image=image,
             num_inference_steps=int(inference_steps),
             guidance_scale=float(guidance_scale),
-            octree_resolution=int(octree_resolution),
+            octree_resolution=oct_res,
             num_chunks=8000,
         )[0]
     except Exception as e:
@@ -541,7 +546,7 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                     PRESETS = {
                         "fast":     (256, 20, 7.5, 80000),
                         "balanced": (256, 30, 7.5, 80000),
-                        "high":     (384, 50, 8.5, 100000),
+                        "high":     (256, 50, 8.5, 100000),
                     }
 
                     def _apply_preset(p):
