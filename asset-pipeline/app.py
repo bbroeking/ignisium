@@ -168,6 +168,21 @@ def generate_3d(
     yield str(out_path), "\n".join(log)
 
 
+# --- Non-generator wrapper for queue/programmatic use ---
+def run_generation(image, asset_name, use_texture=True,
+                   octree_resolution=256, inference_steps=30,
+                   guidance_scale=7.5, decimate_faces=80000):
+    """Blocking wrapper around generate_3d for use by pipeline_queue."""
+    result = (None, "")
+    for result in generate_3d(
+        image, asset_name, use_texture,
+        octree_resolution, inference_steps, guidance_scale,
+        decimate_faces,
+    ):
+        pass  # drain the generator
+    return result
+
+
 # --- Gradio UI ---
 CUSTOM_CSS = """
 .gradio-container { max-width: 1200px !important; margin: 0 auto; }
@@ -261,6 +276,155 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
         4. Game auto-loads GLBs on startup and swaps primitive placeholders
         """
     )
+
+    # ================================================================
+    # Pipeline Queue: prompt -> Midjourney (Discord) -> 3D -> game
+    # ================================================================
+    gr.Markdown("---\n# Pipeline Queue", elem_id="title")
+    gr.Markdown(
+        "Add a job: generates an MJ prompt, submits to Midjourney via Discord, "
+        "downloads the upscaled image, runs Hunyuan3D-2 with the chosen preset, "
+        "and auto-installs the GLB. Without `DISCORD_TOKEN` in `.env`, stops at "
+        "'prompt ready' — paste a PNG into `inbox/<job_id>.png` manually.",
+        elem_id="subtitle",
+    )
+
+    _queue_singleton = {"q": None}
+
+    def _get_queue():
+        if _queue_singleton["q"] is None:
+            from pipeline_queue import PipelineQueue
+            _queue_singleton["q"] = PipelineQueue.instance()
+        return _queue_singleton["q"]
+
+    _TERMINAL_STATES = {"done", "failed", "cancelled"}
+
+    def _format_jobs_table(jobs):
+        rows = []
+        for j in jobs:
+            cancel_cell = "—" if j.state in _TERMINAL_STATES else "✕ Cancel"
+            rows.append([
+                cancel_cell, j.id, j.asset_name, j.preset, j.state,
+                j.subject[:60] + ("..." if len(j.subject) > 60 else ""),
+                Path(j.installed_path).name if j.installed_path else
+                    (Path(j.glb_path).name if j.glb_path else ""),
+                j.error[:80] if j.error else "",
+            ])
+        return rows
+
+    def _refresh_queue_ui():
+        return _format_jobs_table(_get_queue().list_jobs())
+
+    def _add_queue_job(subject, asset_name, preset):
+        if not subject.strip():
+            return _refresh_queue_ui(), "ERROR: subject text is empty"
+        q = _get_queue()
+        job = q.add_job(subject, asset_name, preset)
+        return _refresh_queue_ui(), f"Added job {job.id} ({job.asset_name})"
+
+    def _view_job_log(job_id):
+        if not job_id.strip():
+            return "Enter a job id"
+        job = _get_queue().get_job(job_id.strip())
+        if job is None:
+            return f"No job with id {job_id}"
+        lines = [
+            f"id:        {job.id}",
+            f"state:     {job.state}",
+            f"subject:   {job.subject}",
+            f"asset:     {job.asset_name}",
+            f"preset:    {job.preset}",
+            f"prompt:    {job.prompt}",
+            f"mj_image:  {job.mj_local_path}",
+            f"glb:       {job.glb_path}",
+            f"installed: {job.installed_path}",
+            f"error:     {job.error}",
+            "", "log:", *job.log,
+        ]
+        return "\n".join(lines)
+
+    def _cancel_job(job_id):
+        if not job_id.strip():
+            return _refresh_queue_ui(), "Enter a job id"
+        _get_queue().cancel_job(job_id.strip())
+        return _refresh_queue_ui(), f"Cancelled {job_id.strip()}"
+
+    def _on_table_select(evt: gr.SelectData):
+        if evt is None or evt.index is None:
+            return _refresh_queue_ui(), "", "", ""
+        if isinstance(evt.index, (list, tuple)) and len(evt.index) >= 2:
+            row, col = evt.index[0], evt.index[1]
+        else:
+            row, col = evt.index, -1
+        jobs = _get_queue().list_jobs()
+        if row is None or row >= len(jobs):
+            return _refresh_queue_ui(), "", "", ""
+        job = jobs[row]
+        if col == 0 and job.state not in _TERMINAL_STATES:
+            _get_queue().cancel_job(job.id)
+            return _refresh_queue_ui(), job.id, _view_job_log(job.id), f"Cancelled {job.id}"
+        return _refresh_queue_ui(), job.id, _view_job_log(job.id), f"Selected {job.id}"
+
+    from prompts import BUILDING_PROMPTS
+    _BUILDING_CHOICES = ["(custom)"] + [
+        f"{v['label']} ({k})" for k, v in BUILDING_PROMPTS.items()
+    ]
+
+    def _on_building_pick(choice):
+        if not choice or choice == "(custom)":
+            return gr.update(), gr.update()
+        if "(" in choice and choice.endswith(")"):
+            key = choice.rsplit("(", 1)[1].rstrip(")")
+        else:
+            key = choice
+        info = BUILDING_PROMPTS.get(key)
+        if not info:
+            return gr.update(), gr.update()
+        return gr.update(value=info["subject"]), gr.update(value=key)
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            q_building_pick = gr.Dropdown(
+                choices=_BUILDING_CHOICES, value="(custom)",
+                label="Pick a building (or custom)",
+            )
+            q_subject = gr.Textbox(
+                label="Subject (short sentence)", lines=3,
+                placeholder="command center, four corner pylons, narrow window slits",
+            )
+            q_asset_name = gr.Textbox(label="Asset name (snake_case)", value="command_center")
+            q_preset = gr.Dropdown(
+                choices=["fast", "balanced", "high", "max"], value="high",
+                label="Quality preset",
+            )
+            q_add_btn = gr.Button("Add to queue", variant="primary")
+            q_add_status = gr.Textbox(label="Last action", interactive=False)
+
+            q_building_pick.change(fn=_on_building_pick, inputs=q_building_pick,
+                                   outputs=[q_subject, q_asset_name])
+
+        with gr.Column(scale=2):
+            q_table = gr.Dataframe(
+                headers=["", "id", "asset", "preset", "state", "subject", "result", "error"],
+                datatype=["str"] * 8, value=[], interactive=False, wrap=True,
+                row_count=(0, "dynamic"),
+                label="Jobs (click ✕ to cancel, click row to view log)",
+            )
+            with gr.Row():
+                q_refresh_btn = gr.Button("Refresh")
+                q_job_id = gr.Textbox(label="Job id", scale=1)
+                q_view_btn = gr.Button("View log")
+                q_cancel_btn = gr.Button("Cancel job", variant="stop")
+            q_log = gr.Textbox(label="Job detail", lines=15, max_lines=30, interactive=False)
+
+    q_add_btn.click(fn=_add_queue_job, inputs=[q_subject, q_asset_name, q_preset],
+                    outputs=[q_table, q_add_status])
+    q_refresh_btn.click(fn=_refresh_queue_ui, inputs=None, outputs=q_table)
+    q_view_btn.click(fn=_view_job_log, inputs=q_job_id, outputs=q_log)
+    q_cancel_btn.click(fn=_cancel_job, inputs=q_job_id, outputs=[q_table, q_add_status])
+    q_table.select(fn=_on_table_select, inputs=None,
+                   outputs=[q_table, q_job_id, q_log, q_add_status])
+    app.load(fn=_refresh_queue_ui, inputs=None, outputs=q_table)
 
 
 if __name__ == "__main__":

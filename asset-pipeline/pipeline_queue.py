@@ -521,35 +521,28 @@ class DiscordMJBridge:
 # ---------------------------------------------------------------------------
 class ThreeDRunner:
     def __init__(self):
-        # Map preset name -> tuple of params consumed by app.generate()
+        # Map preset name -> (octree_resolution, steps, guidance_scale, decimate_faces)
         self._presets = {
-            "fast":     (256, 30, 7.5, "default", 8000,  512, 6),
-            "balanced": (384, 50, 7.5, "dmc",     8000,  768, 6),
-            "high":     (512, 70, 8.5, "dmc",     8000, 1024, 6),
-            "max":      (768, 80, 9.0, "dmc",     4000, 2048, 8),
+            "fast":     (256, 20, 7.5, 80000),
+            "balanced": (256, 30, 7.5, 80000),
+            "high":     (256, 30, 8.5, 100000),
+            "max":      (384, 50, 9.0, 150000),
         }
 
     def run(self, image_path: Path, asset_name: str, preset: str = "high") -> Path:
         """Synchronously run shape + texture generation. Returns final GLB path."""
         from PIL import Image
-        # Lazy import the app module so we don't bootstrap Gradio at module load
         import app  # type: ignore
-        oct_, steps, cfg, mc, chunks, tex_res, tex_views = self._presets[preset]
+        octree, steps, cfg, decimate = self._presets[preset]
         img = Image.open(str(image_path)).convert("RGB")
-        glb_path, status = app.generate(
-            mode="single",
-            image_single=img,
-            image_front=None, image_back=None, image_left=None, image_right=None,
+        glb_path, status = app.run_generation(
+            image=img,
             asset_name=asset_name,
-            octree_resolution=oct_,
+            use_texture=True,
+            octree_resolution=octree,
             inference_steps=steps,
             guidance_scale=cfg,
-            mc_algo=mc,
-            num_chunks=chunks,
-            use_texture=True,
-            texture_resolution=tex_res,
-            texture_views=tex_views,
-            progress=_NullProgress(),
+            decimate_faces=decimate,
         )
         if not glb_path:
             raise RuntimeError(f"3D generation returned no GLB. Log:\n{status}")
