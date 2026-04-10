@@ -44,13 +44,23 @@ if exist "%PORTABLE_PY%" (
 )
 
 echo.
+echo Press Ctrl+C to stop the server gracefully.
+echo Closing this window also triggers a clean shutdown.
+echo.
 cd /d "%HERE%"
 "%PY%" app.py
 set "RESULT=%ERRORLEVEL%"
 
 echo.
-if %RESULT% NEQ 0 (
+if %RESULT% EQU 0 (
+    echo Server stopped cleanly.
+) else if %RESULT% EQU -1073741510 (
+    REM 0xC000013A = STATUS_CONTROL_C_EXIT, normal Ctrl+C
+    echo Server stopped (Ctrl+C^).
+) else (
     echo app.py exited with code %RESULT%.
 )
-pause
+
+REM Brief pause so the user can read the exit message, then auto-close.
+timeout /t 3 /nobreak >nul
 exit /b %RESULT%

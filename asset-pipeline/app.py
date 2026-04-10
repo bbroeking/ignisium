@@ -549,7 +549,38 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                     )
 
 
+def _shutdown():
+    """Clean up VRAM and save queue state on exit."""
+    print("\nShutting down...")
+    _free_vram()
+    # Flush queue state if it was ever initialized
+    try:
+        if _queue_singleton.get("q") is not None:
+            _queue_singleton["q"].store.save()
+            print("    Queue state saved.")
+    except Exception:
+        pass
+    print("    VRAM released. Goodbye.")
+
+
 if __name__ == "__main__":
+    import atexit
+    import signal
+
+    atexit.register(_shutdown)
+
+    # Handle Ctrl+C and window-close (SIGBREAK on Windows)
+    def _signal_handler(sig, frame):
+        print(f"\nReceived signal {sig}, shutting down gracefully...")
+        _shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+    # SIGBREAK fires when a Windows console window is closed via the X button
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _signal_handler)
+
     app.launch(
         server_name="127.0.0.1",
         server_port=7860,
