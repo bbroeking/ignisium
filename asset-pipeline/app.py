@@ -167,17 +167,30 @@ def generate_3d(
     out_path = OUTPUT_DIR / f"{name}_{timestamp}.glb"
 
     log = []
+    timings = {}  # phase -> seconds
+
     def _status(msg):
         log.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
         return "\n".join(log)
+
+    def _phase(name):
+        """Context manager that times a phase."""
+        class _Timer:
+            def __enter__(self):
+                self.t0 = time.time()
+                return self
+            def __exit__(self, *_):
+                timings[name] = time.time() - self.t0
+        return _Timer()
 
     start = time.time()
 
     # --- Background removal ---
     if remove_background:
         yield None, _status("Removing background...")
-        image = remove_bg(image)
-        # Save preprocessed image for debugging
+        with _phase("bg_removal"):
+            image = remove_bg(image)
+        yield None, _status(f"  Background removed ({timings['bg_removal']:.1f}s)")
         try:
             prep_path = OUTPUT_DIR / f"{name}_{timestamp}_preprocessed.png"
             image.save(prep_path)
@@ -185,55 +198,63 @@ def generate_3d(
         except Exception:
             pass
 
-    # --- Shape ---
+    # --- Shape load ---
     yield None, _status("Loading shape model...")
     _free_vram()
-    shape_pipe = _load_shape()
+    with _phase("shape_load"):
+        shape_pipe = _load_shape()
+    yield None, _status(f"  Model loaded ({timings['shape_load']:.1f}s)")
 
     oct_res = int(octree_resolution)
     if oct_res > 256:
         yield None, _status(f"WARNING: octree {oct_res} makes surface extraction very slow (5-30 min).")
         yield None, _status(f"  Use 256 for fast results. Continuing with {oct_res}...")
 
+    # --- Shape generation ---
     yield None, _status(f"Generating shape (octree={oct_res}, steps={inference_steps}, cfg={guidance_scale})...")
     try:
-        mesh = shape_pipe(
-            image=image,
-            num_inference_steps=int(inference_steps),
-            guidance_scale=float(guidance_scale),
-            octree_resolution=oct_res,
-            num_chunks=8000,
-        )[0]
+        with _phase("shape_gen"):
+            mesh = shape_pipe(
+                image=image,
+                num_inference_steps=int(inference_steps),
+                guidance_scale=float(guidance_scale),
+                octree_resolution=oct_res,
+                num_chunks=8000,
+            )[0]
     except Exception as e:
         yield None, _status(f"ERROR: Shape generation failed: {e}")
         return
-    yield None, _status(f"  Shape done in {time.time()-start:.1f}s — verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
+    yield None, _status(f"  Shape done ({timings['shape_gen']:.1f}s) — verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
 
     del shape_pipe
     _free_vram()
 
-    # --- Mesh cleanup (remove floaters) ---
+    # --- Mesh cleanup ---
     yield None, _status("Cleaning mesh (removing disconnected components)...")
-    mesh = _clean_mesh(mesh)
-    yield None, _status(f"  Clean mesh: verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
+    with _phase("mesh_cleanup"):
+        mesh = _clean_mesh(mesh)
+    yield None, _status(f"  Clean mesh ({timings['mesh_cleanup']:.1f}s): verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
 
     # --- Texture ---
     if use_texture:
         target = int(decimate_faces)
         if len(mesh.faces) > target:
             yield None, _status(f"Decimating {len(mesh.faces)} → {target} faces...")
-            mesh = mesh.simplify_quadric_decimation(face_count=target)
-            yield None, _status(f"  Decimated: verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
+            with _phase("decimate"):
+                mesh = mesh.simplify_quadric_decimation(face_count=target)
+            yield None, _status(f"  Decimated ({timings['decimate']:.1f}s): verts={len(mesh.vertices)}, faces={len(mesh.faces)}")
 
         yield None, _status("Loading texture model...")
-        tex_pipe = _load_texture()
+        with _phase("tex_load"):
+            tex_pipe = _load_texture()
         if tex_pipe is not None:
+            yield None, _status(f"  Texture model loaded ({timings['tex_load']:.1f}s)")
             tex_pipe.enable_model_cpu_offload()
             yield None, _status("Baking PBR textures (delight → UV unwrap → multiview → bake)...")
-            tex_start = time.time()
             try:
-                mesh = tex_pipe(mesh, image=image)
-                yield None, _status(f"  Texture done in {time.time()-tex_start:.1f}s")
+                with _phase("tex_gen"):
+                    mesh = tex_pipe(mesh, image=image)
+                yield None, _status(f"  Texture done ({timings['tex_gen']:.1f}s)")
             except Exception as e:
                 import traceback; traceback.print_exc()
                 yield None, _status(f"  WARNING: Texture failed ({e}) — exporting untextured")
@@ -244,15 +265,40 @@ def generate_3d(
 
     # --- Export ---
     yield None, _status("Exporting GLB...")
-    try:
-        mesh.export(str(out_path))
-    except Exception as e:
-        yield None, _status(f"ERROR: Export failed: {e}")
-        return
+    with _phase("export"):
+        try:
+            mesh.export(str(out_path))
+        except Exception as e:
+            yield None, _status(f"ERROR: Export failed: {e}")
+            return
 
     total = time.time() - start
-    _status(f"Done in {total:.1f}s")
+    timings["total"] = total
+
+    # --- Timing summary ---
+    _status("")
+    _status("=== TIMING SUMMARY ===")
+    for phase, secs in timings.items():
+        if phase != "total":
+            _status(f"  {phase:20s}  {secs:6.1f}s")
+    _status(f"  {'TOTAL':20s}  {total:6.1f}s")
+    _status("")
     _status(f"Saved: {out_path}")
+
+    # Also log to a timing CSV for tracking across runs
+    timing_csv = OUTPUT_DIR / "timings.csv"
+    write_header = not timing_csv.exists()
+    try:
+        with open(timing_csv, "a") as f:
+            if write_header:
+                f.write("timestamp,asset,octree,steps,cfg,texture,"
+                        + ",".join(timings.keys()) + "\n")
+            f.write(f"{timestamp},{name},{oct_res},{inference_steps},"
+                    f"{guidance_scale},{use_texture},"
+                    + ",".join(f"{v:.1f}" for v in timings.values()) + "\n")
+    except Exception:
+        pass
+
     yield str(out_path), "\n".join(log)
 
 
