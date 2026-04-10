@@ -17,8 +17,8 @@ Local AI-powered 3D asset generation for the Ignisium RTS game. Generates textur
 
 ### Hardware
 
-- **GPU:** NVIDIA RTX 4080 16GB (or similar; 12GB minimum, 16GB recommended)
-- **RAM:** 32GB minimum, 96GB recommended (model weights stream from RAM to VRAM)
+- **GPU:** Any NVIDIA GPU with 12GB+ VRAM (16GB+ recommended). Tested on RTX 3060 12GB, 4070, 4080, 4090.
+- **RAM:** 32GB minimum, 64GB+ recommended (model weights stream from RAM to VRAM)
 - **Storage:** ~40GB for model weights + runtime
 
 ### Software
@@ -280,7 +280,7 @@ runtime/
 
 ## Performance
 
-Benchmarks on RTX 4080 16GB / 96GB RAM / Windows 10:
+Benchmarks on an RTX 4080 16GB (times scale with GPU):
 
 | Step | Time |
 |---|---|

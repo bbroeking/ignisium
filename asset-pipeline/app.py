@@ -5,7 +5,7 @@ Gradio UI for generating 3D GLB assets from concept images using
 Tencent's Hunyuan3D-2 model locally.
 
 Pipelines are loaded on demand and freed between phases so that the shape
-and texture models don't fight for VRAM on a 16 GB card.
+and texture models don't fight for limited VRAM.
 """
 
 import gc
@@ -849,7 +849,7 @@ with gr.Blocks(title="Ignisium Asset Pipeline", css=CUSTOM_CSS, theme=gr.themes.
                         "locally on your GPU. Produces skeleton + skinning weights "
                         "that can be exported with animations to GLB.\n\n"
                         "Requires: Python, PyTorch, CUDA. "
-                        "Your RTX 4080 + 96GB RAM can handle it."
+                        "Requires a CUDA-capable GPU with 8GB+ VRAM."
                     )
                     unirig_setup_btn = gr.Button("Clone UniRig + Show Setup")
                     unirig_status = gr.Textbox(
