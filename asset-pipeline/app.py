@@ -110,7 +110,9 @@ def generate_3d(
         if not line and proc.poll() is not None:
             break
         if line:
-            log_lines.append(line.rstrip())
+            stripped = line.rstrip()
+            log_lines.append(stripped)
+            print(stripped, flush=True)  # also show in cmd window
             yield None, "\n".join(log_lines)
 
     stdout = proc.stdout.read().strip()
