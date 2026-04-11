@@ -1,140 +1,224 @@
 # Ignisium Asset Pipeline
 
-Local AI-powered 3D asset generation for the Ignisium RTS game. Generates textured GLB models from concept images using Hunyuan3D-2, with an optional Midjourney prompt queue for automated concept art generation.
+Local AI-powered 3D asset generation for the Ignisium RTS game. Image to textured GLB in seconds. Everything runs on your GPU.
 
-**Everything runs locally on your GPU.** No cloud APIs required for core functionality.
+## Quick Start
 
-## Features
+```cmd
+cd asset-pipeline
 
-- **Image to 3D** -- Drop a concept image, get a textured GLB in ~2 minutes
-- **PBR Textures** -- Automatic texture baking with delight, multi-view diffusion, and UV unwrapping
-- **Prompt Queue** -- Generate Midjourney prompts, submit via Discord, auto-download and convert to 3D
-- **Animation Tools** -- GLB node inspector, procedural animation reference, UniRig integration for character rigging
-- **Game Integration** -- Auto-installs GLBs into the game's asset folder; stylized building shader applied automatically
-- **Tunable Parameters** -- Octree resolution, inference steps, guidance scale, decimation target all exposed in UI
+:: One image via Gradio UI
+run.bat
+:: -> opens http://127.0.0.1:7860
 
-## Requirements
+:: Batch process a folder of images
+runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py
 
-### Hardware
+:: Shape only, no textures (fastest)
+runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py --no-texture
 
-- **GPU:** Any NVIDIA GPU with 12GB+ VRAM (16GB+ recommended). Tested on RTX 4080 16GB only so far.
-- **RAM:** 32GB minimum, 64GB+ recommended (model weights stream from RAM to VRAM)
-- **Storage:** ~40GB for model weights + runtime
+:: High quality (octree 384, 50 steps)
+runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py --preset high
 
-### Software
-
-- **Windows 10/11** with Developer Mode enabled (Settings > Update & Security > For developers)
-- **NVIDIA drivers** with CUDA 12.x support
-- **MSVC Build Tools 2022** (for texture pipeline C++ extensions)
+:: Dry run (show plan without generating)
+runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py --dry-run
+```
 
 ## Setup
 
-### 1. Install the Hunyuan3D-2 Portable Runtime
+### Prerequisites
 
-Download [YanWenKun/Hunyuan3D-2-WinPortable](https://github.com/YanWenKun/Hunyuan3D-2-WinPortable/releases/latest) (cu126 v4 or later) and extract it so the directory structure is:
+- **Windows 10/11**
+- **NVIDIA GPU** with 12GB+ VRAM (16GB recommended)
+- **32GB+ RAM** (64GB+ recommended)
+- **~40GB disk** for model weights
+- **MSVC Build Tools 2022** (for texture C++ extensions)
+
+### Step 1: Enable Windows Developer Mode
+
+**Required** — HuggingFace downloads hard-fail without this.
+
+Settings > Update & Security > For developers > Developer Mode > On
+
+Verify:
+```powershell
+(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' AllowDevelopmentWithoutDevLicense).AllowDevelopmentWithoutDevLicense
+# Should return: 1
+```
+
+### Step 2: Install Hunyuan3D-2 Portable Runtime
+
+Download [YanWenKun/Hunyuan3D-2-WinPortable](https://github.com/YanWenKun/Hunyuan3D-2-WinPortable/releases/latest) (cu126 v4+). Extract so the structure is:
 
 ```
 asset-pipeline/
   runtime/
     Hunyuan3D2_WinPortable/
-      python_standalone/
-        python.exe
-      Hunyuan3D-2/
-        hy3dgen/
+      python_standalone/python.exe
+      Hunyuan3D-2/hy3dgen/
       HuggingFaceHub/
-      ...
 ```
 
-### 2. Enable Windows Developer Mode
-
-**Required** -- HuggingFace model downloads will hard-fail without this.
-
-Settings > Update & Security > For developers > Developer Mode > On
-
-Verify in PowerShell:
-
-```powershell
-(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' AllowDevelopmentWithoutDevLicense).AllowDevelopmentWithoutDevLicense
-```
-
-Should return `1`.
-
-### 3. Build Texture Extensions (one time)
-
-The texture pipeline needs C++ extensions compiled against the portable's Python/PyTorch:
+### Step 3: Build Texture Extensions (one time)
 
 ```cmd
-asset-pipeline\build_extensions.bat
+cd asset-pipeline
+build_extensions.bat
 ```
 
-Requires MSVC Build Tools 2022. Builds `custom_rasterizer` and `DifferentiableRenderer` into the portable's site-packages.
+Requires MSVC Build Tools 2022. Builds `custom_rasterizer` and `DifferentiableRenderer`.
 
-### 4. Install Fast Simplification (one time)
+### Step 4: Install Extra Dependencies (one time)
 
 ```cmd
 runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe -m pip install fast-simplification
 ```
 
-### 5. (Optional) Discord / Midjourney Integration
-
-Copy `.env.example` to `.env` and fill in:
-
-```
-DISCORD_TOKEN=your_discord_self_bot_token
-DISCORD_CHANNEL_ID=channel_where_midjourney_bot_lives
-OLLAMA_MODEL=llama3.1    # optional, for AI-generated MJ prompts
-```
-
-Without these, the Prompt Queue tab still works -- it generates prompts and waits for you to manually paste a PNG into `inbox/<job_id>.png`.
-
-## Usage
-
-### Launch
+### Step 5: First Run
 
 ```cmd
-cd asset-pipeline
 run.bat
 ```
 
-Opens at http://127.0.0.1:7860 with three tabs.
+First launch downloads ~20GB of model weights (one time). Subsequent launches use the cache.
 
-### Tab 1: Generate
+### Step 6 (Optional): Discord / Midjourney Integration
 
-1. Upload a concept image (PNG with transparent background works best)
-2. Name the asset (e.g., `command_center`)
-3. Adjust parameters if needed:
-   - **Octree resolution**: 256 (fast, ~20s) / 384 (detailed) / 512 (max, slow)
-   - **Inference steps**: 30 (default) / 50 (higher quality)
-   - **Guidance scale**: 7.5 (default) / 9-10 (sharper adherence to input)
-   - **Decimate faces**: 80K (fast UV unwrap) / 200K (more detail, slower)
-4. Check "Generate PBR textures" for textured output (~90s extra)
-5. Click Generate -- live status updates in the right panel
+Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN` and `DISCORD_CHANNEL_ID` for automated Midjourney prompt submission.
 
-Output GLBs land in `asset-pipeline/output/`.
+## Usage
 
-### Tab 2: Prompt Queue
+### Gradio Web UI (`run.bat`)
 
-End-to-end pipeline: describe a building in plain text, get a game-ready GLB.
+Three tabs at http://127.0.0.1:7860:
 
-1. Pick a building from the dropdown (auto-fills subject + asset name) or write custom
-2. Choose quality preset (fast / balanced / high / max)
-3. Click "Add to queue"
+| Tab | What it does |
+|---|---|
+| **Generate** | Upload image, set params, generate GLB. Live progress. Batch queue at the bottom. |
+| **Prompt Queue** | Subject text -> MJ prompt -> Discord -> download -> 3D -> auto-install GLB |
+| **Animations** | GLB node inspector, procedural animation reference, UniRig setup |
 
-The queue runs: generate MJ prompt > submit to Discord > wait for upscale > download image > run Hunyuan3D-2 > install GLB into game.
+### Batch CLI (`batch.py`)
 
-Without Discord token: stops at "prompt ready". Copy the prompt to Midjourney manually, then drop the resulting PNG into `inbox/<job_id>.png`.
+Process a folder of images in one command:
 
-### Tab 3: Animations
+```cmd
+runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py [input_folder] [options]
+```
 
-- **GLB Inspector**: Upload a GLB to see its node tree and which nodes the game animates
-- **Building Animations**: Procedural (no rig needed) -- name child nodes in Blender to match the game's animation hooks
-- **Character Rigging**: Install UniRig (SIGGRAPH 2025) for local GPU-based auto-rigging
+| Option | Default | Description |
+|---|---|---|
+| `input_folder` | `inbox/` | Folder of PNG/JPG images |
+| `--preset` | `balanced` | `fast` / `balanced` / `high` |
+| `--no-texture` | off | Shape only (~10s), skip PBR textures |
+| `--dry-run` | off | Show plan without generating |
+
+**Workflow:**
+1. Drop Midjourney PNGs into `inbox/`
+2. Run `batch.py`
+3. GLBs appear in `output/`, source images move to `generated/` with simplified names
+
+**Filename simplification:**
+```
+qurtyyy_A_small_sci-fi_pressurized_habitat_dome_building_roun_546e74eb-...  ->  habitat_dome
+qurtyyy_A_small_sci-fi_command_center_building_model_fortifie_251fdb54-...  ->  command_center
+qurtyyy_Stylized_sci-fi_shipyard_hangar_volcanic_planet_colon_9aa694dc-...  ->  shipyard
+```
+
+### Quality Presets
+
+| Preset | Octree | Steps | CFG | Shape Time | Best for |
+|---|---|---|---|---|---|
+| `fast` | 256 | 20 | 7.5 | ~8s | Rapid iteration |
+| `balanced` | 256 | 30 | 7.5 | ~11s | Default |
+| `high` | 384 | 50 | 8.5 | ~18s | Final assets, sharp edges |
+
+FlashVDM turbo decoder is enabled by default (45x faster VAE decode).
+
+## Architecture
+
+```
+asset-pipeline/
+  app.py              # Gradio UI (lightweight, no GPU — spawns workers)
+  worker.py           # Subprocess worker (loads models, runs inference, exits)
+  batch.py            # CLI batch processor
+  pipeline_queue.py   # End-to-end queue: prompt -> MJ -> 3D -> install
+  prompts.py          # Building prompt templates for Midjourney
+  build_extensions.bat # One-time C++ extension build
+  run.bat             # Launch script (env vars + portable Python)
+  .env.example        # Discord/Ollama config template
+  inbox/              # Drop images here for batch processing
+  generated/          # Processed images move here (renamed)
+  output/             # Generated GLBs + timing CSV
+
+runtime/
+  Hunyuan3D2_WinPortable/   # (not in git)
+    python_standalone/       # Python 3.12 + PyTorch + CUDA
+    Hunyuan3D-2/             # Model source code
+    HuggingFaceHub/          # Model weight cache (~20GB)
+```
+
+### Subprocess Architecture
+
+Each generation runs in a **fresh subprocess** (`worker.py`) with its own CUDA context. This eliminates VRAM fragmentation that caused 100x slowdowns on sequential runs. The Gradio process (`app.py`) stays lightweight — no AI models loaded, no GPU usage.
+
+```
+app.py (Gradio)                    worker.py (subprocess)
+┌──────────────┐                   ┌──────────────────────┐
+│ Save image   │──args.json───────>│ Load model           │
+│ Spawn worker │                   │ Remove background    │
+│ Stream stderr│<──live log────────│ Diffusion sampling   │
+│ Read stdout  │<──result.json─────│ FlashVDM decode      │
+│ Show GLB     │                   │ Mesh cleanup         │
+└──────────────┘                   │ Texture baking       │
+                                   │ Export GLB           │
+                                   │ Exit (GPU released)  │
+                                   └──────────────────────┘
+```
+
+## Generation Flow
+
+```
+Input Image
+    │
+    ▼
+Background Removal (rembg birefnet-general)
+    │
+    ▼
+Shape Diffusion (Hunyuan3D-2 DiT, 30-50 steps)
+    │
+    ▼
+FlashVDM Volume Decode (turbo VAE, <0.1s)
+    │
+    ▼
+GPU Marching Cubes (DMC, <0.1s)
+    │
+    ▼
+Mesh Cleanup (remove disconnected components)
+    │
+    ├── [shape only] ──> Export GLB (~10s total)
+    │
+    ▼
+Decimate (600K -> 80K faces)
+    │
+    ▼
+Delight (remove lighting, 50 diffusion steps)
+    │
+    ▼
+Multi-view Diffusion (6 views, 30 steps)
+    │
+    ▼
+UV Unwrap (xatlas) + Texture Bake + Inpaint
+    │
+    ▼
+Export Textured GLB (~2 min total)
+```
 
 ## Game Integration
 
 ### Auto-loading GLBs
 
-Copy a GLB to `public/assets/models/buildings/<type>.glb` where `<type>` matches a key in `BUILDING_GLBS` in `main.js`:
+Copy to `public/assets/models/buildings/<type>.glb`:
 
 ```
 command_center, thermal_extractor, mineral_drill, habitat_pod,
@@ -142,181 +226,45 @@ research_lab, warehouse, barracks, defense_turret, shipyard,
 trade_depot, shield_gen
 ```
 
-The game auto-loads these at startup and swaps primitive placeholder meshes in-place.
+Game auto-loads at startup and swaps primitive placeholders.
 
-### Stylized Building Shader
+### Building Shader
 
-Imported GLBs automatically get a custom shader matching the game's visual style:
+Imported GLBs get a stylized shader: toon diffuse, specular, procedural panel lines, weathering, rim light, lava underlight, team-color accent.
 
-- 3-band toon diffuse lighting
-- Toon specular highlights
-- Procedural panel lines
-- Noise-based weathering
-- Rim light
-- Lava underlight (volcanic planet surface)
-- Team-color accent channel
+### Procedural Animations
 
-### Building Animations
+Name child nodes in Blender to match:
 
-The game's render loop auto-animates nodes by name:
-
-| Node Name | Animation |
+| Node | Animation |
 |---|---|
 | `drill-arm` | Continuous Y rotation |
-| `drill-bit` | Continuous Z rotation |
 | `turret-barrel` | Sinusoidal Y scan |
-| `turret-light` | Pulsing scale |
 | `holo-display` | Opacity pulse + slow rotation |
 | `trade-pad` | Slow Y rotation |
 
-Name your GLB's child objects in Blender to match these, re-export, and the animations happen automatically.
-
-## Generation Flow
-
-```
- CONCEPT ART                    SHAPE GENERATION                    TEXTURE GENERATION
- ============                   ================                    ==================
-
- ┌──────────┐    rembg          ┌──────────────┐                   ┌───────────────────┐
- │  Input   │───birefnet───────>│  Background  │                   │  Mesh Decimation  │
- │  Image   │   general         │  Removed     │                   │  600K -> 80K faces│
- └──────────┘                   │  + Centered  │                   │  (fast_simplify)  │
-                                └──────┬───────┘                   └─────────┬─────────┘
-                                       │                                     │
-                                       v                                     v
-                                ┌──────────────┐                   ┌───────────────────┐
-                                │  Hunyuan3D-2 │                   │  xatlas UV Unwrap │
-                                │  DiT Diffusion│                  │  (parametrize)    │
-                                │  30 steps     │                  └─────────┬─────────┘
-                                │  ~8s on GPU   │                            │
-                                └──────┬───────┘                             v
-                                       │                           ┌───────────────────┐
-                                       v                           │  Delight Model    │
-                                ┌──────────────┐                   │  (InstructPix2Pix │
-                                │  Volume VAE  │                   │   50 steps, GPU)  │
-                                │  Decode      │                   └─────────┬─────────┘
-                                │  ~8s         │                             │
-                                └──────┬───────┘                             v
-                                       │                           ┌───────────────────┐
-                                       v                           │  Multi-view       │
-                                ┌──────────────┐                   │  Diffusion        │
-                                │  Marching    │                   │  (6 views, 30     │
-                                │  Cubes       │                   │   steps, GPU)     │
-                                │  (octree 256)│                   └─────────┬─────────┘
-                                └──────┬───────┘                             │
-                                       │                                     v
-                                       v                           ┌───────────────────┐
-                                ┌──────────────┐                   │  Texture Bake     │
-                                │  Mesh Cleanup│                   │  (back-project    │
-                                │  (keep largest│                  │   + inpaint seams) │
-                                │   component) │                   └─────────┬─────────┘
-                                └──────┬───────┘                             │
-                                       │                                     v
-                                       v                           ┌───────────────────┐
-                                ┌──────────────┐    if texture     │  Textured GLB     │
-                                │  Untextured  │───────on─────────>│  (albedo map      │
-                                │  Mesh        │                   │   baked into mesh) │
-                                └──────┬───────┘                   └─────────┬─────────┘
-                                       │                                     │
-                                       └──────────────┬──────────────────────┘
-                                                      │
-                                                      v
-                                               ┌─────────────┐
-                                               │  Export GLB  │
-                                               │  output/     │
-                                               └──────┬──────┘
-                                                      │
-                                                      v
-                                  ┌────────────────────────────────────────┐
-                                  │  Game Auto-Load                        │
-                                  │  public/assets/models/buildings/*.glb  │
-                                  │  + Stylized Building Shader            │
-                                  │  + Procedural Animations               │
-                                  └────────────────────────────────────────┘
-```
-
-### Prompt Queue Flow (end-to-end automation)
-
-```
- ┌──────────┐   Ollama /    ┌──────────┐   Discord    ┌──────────┐   Download   ┌──────────┐
- │ Subject  │──template────>│ MJ Prompt│───self-bot──>│ Midjourney│────────────>│ Concept  │
- │ text     │               │ generated│   /imagine   │ generates │   upscaled  │ PNG      │
- └──────────┘               └──────────┘              │ 4 images  │   image     └────┬─────┘
-                                                      │ + upscale │                  │
-                                                      └──────────┘                   │
-                                                                                     v
-                                                                     ┌───────────────────────┐
-                                                                     │ Shape + Texture        │
-                                                                     │ (same flow as above)   │
-                                                                     └───────────┬───────────┘
-                                                                                 │
-                                                                                 v
-                                                                     ┌───────────────────────┐
-                                                                     │ Auto-install GLB into  │
-                                                                     │ public/assets/models/  │
-                                                                     │ buildings/<type>.glb   │
-                                                                     └───────────────────────┘
-```
-
-## Architecture
-
-```
-asset-pipeline/
-  app.py              # Gradio UI (3 tabs: Generate, Queue, Animations)
-  pipeline_queue.py   # End-to-end queue: prompt -> MJ -> 3D -> install
-  prompts.py          # Building prompt templates for Midjourney
-  build_extensions.bat # One-time C++ extension build for texture pipeline
-  run.bat             # Launch script (sets up env vars + portable Python)
-  .env.example        # Discord/Ollama config template
-  inbox/              # Drop PNGs here for manual queue jobs
-  output/             # Generated GLBs land here
-
-runtime/
-  Hunyuan3D2_WinPortable/   # YanWenKun portable (not in git)
-    python_standalone/       # Embedded Python 3.12 + PyTorch + CUDA
-    Hunyuan3D-2/             # Hunyuan3D-2.0 model source
-    HuggingFaceHub/          # HF model weight cache
-```
-
 ## Performance
 
-Benchmarks on an RTX 4080 16GB (times scale with GPU):
+RTX 4080 16GB, FlashVDM enabled:
 
-| Step | Time |
+| Config | Shape Time | Total w/ Texture |
+|---|---|---|
+| oct256 / 30 steps (fast) | 8s | ~90s |
+| oct256 / 30 steps (balanced) | 11s | ~95s |
+| oct384 / 50 steps (high) | 18s | ~105s |
+| Hunyuan3D-2mini + FlashVDM | 3.6s | ~80s |
+
+## Troubleshooting
+
+| Problem | Fix |
 |---|---|
-| Shape generation (octree 256, 30 steps) | ~20s |
-| Mesh decimation (600K -> 80K faces) | <1s |
-| Texture pipeline load | ~15s |
-| PBR texture baking (delight + multiview + UV + bake) | ~75s |
-| **Total (shape + texture)** | **~2 min** |
-| Shape only (no texture) | ~20s |
-
-## Known Issues & Troubleshooting
-
-### "WinError 1314: A required privilege is not held"
-
-Enable Windows Developer Mode. See Setup step 2.
-
-### Shape generation hangs after "Volume Decoding: 100%"
-
-Octree resolution too high. Use 256 (default). Marching cubes at 384+ is CPU-bound and very slow with no progress bar.
-
-### Texture generation seems stuck (GPU at 1%)
-
-The texture pipeline must run on GPU via `enable_model_cpu_offload()` (called by default). If GPU stays at 1% for >2 min during texture gen, restart the app.
-
-### Texture pipeline VAE warning
-
-`diffusion_pytorch_model.safetensors not found` -- cosmetic. Falls back to pickle format successfully.
-
-### First run is slow
-
-Downloads ~20GB of model weights into `HuggingFaceHub/`. Subsequent runs use the cache.
-
-### mmgp profile thrashing (if using Hunyuan3D-2.1)
-
-Default profile 5 with 2200 MB budget is too aggressive for 16GB GPUs. Change to profile 3 or budget 8000 MB. Not applicable to the current 2.0-based pipeline.
+| `WinError 1314` on first run | Enable Windows Developer Mode (Setup step 1) |
+| Second generation 100x slower | Should not happen with subprocess architecture. Restart `run.bat` if it does. |
+| Machine unresponsive during texture | Normal — GPU at 100% for ~75s. Close Chrome/Discord to free GPU headroom. |
+| `diffusion_pytorch_model.safetensors not found` | Cosmetic warning. Falls back to pickle. |
+| `triton` not found | Cosmetic. Optional optimization, not required. |
+| Shape hangs after Volume Decoding 100% | FlashVDM not enabled. Current `worker.py` enables it by default. |
 
 ## License
 
-Asset pipeline code is MIT. Hunyuan3D-2 model weights are under the [Tencent Hunyuan Community License](https://github.com/Tencent/Hunyuan3D-2/blob/main/LICENSE).
+Pipeline code: MIT. Hunyuan3D-2 weights: [Tencent Hunyuan Community License](https://github.com/Tencent/Hunyuan3D-2/blob/main/LICENSE).
