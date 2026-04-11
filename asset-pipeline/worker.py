@@ -31,7 +31,14 @@ def _log(msg, timings, log_lines):
 
 
 def main():
-    args = json.loads(sys.argv[1])
+    # Args come via a JSON file path (not inline JSON) to avoid
+    # Windows shell mangling backslashes in paths.
+    args_path = sys.argv[1]
+    if os.path.isfile(args_path):
+        with open(args_path, "r", encoding="utf-8") as f:
+            args = json.load(f)
+    else:
+        args = json.loads(args_path)  # fallback for inline JSON
     image_path = args["image_path"]
     asset_name = args["asset_name"]
     use_texture = args["use_texture"]
@@ -114,13 +121,18 @@ def main():
     _log(f"Generating shape (octree={octree_resolution}, steps={inference_steps}, "
          f"cfg={guidance_scale})...", timings, log_lines)
     t0 = time.time()
-    mesh = shape_pipe(
-        image=img,
-        num_inference_steps=int(inference_steps),
-        guidance_scale=float(guidance_scale),
-        octree_resolution=int(octree_resolution),
-        num_chunks=8000,
-    )[0]
+    try:
+        mesh = shape_pipe(
+            image=img,
+            num_inference_steps=int(inference_steps),
+            guidance_scale=float(guidance_scale),
+            octree_resolution=int(octree_resolution),
+            num_chunks=8000,
+        )[0]
+    except Exception as e:
+        _log(f"ERROR: Shape generation failed: {e}", timings, log_lines)
+        print(json.dumps({"glb_path": "", "status": "\n".join(log_lines), "timings": timings}))
+        sys.exit(1)
     timings["shape_gen"] = time.time() - t0
     _log(f"  Shape done ({timings['shape_gen']:.1f}s) — verts={len(mesh.vertices)}, "
          f"faces={len(mesh.faces)}", timings, log_lines)

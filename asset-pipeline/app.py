@@ -82,7 +82,10 @@ def generate_3d(
     tmp_img = OUTPUT_DIR / f"_tmp_input_{timestamp}.png"
     image.save(str(tmp_img))
 
-    args_json = json.dumps({
+    # Write args to a temp JSON file instead of passing on command line.
+    # Windows shell mangles backslashes in JSON strings passed via argv.
+    args_file = OUTPUT_DIR / f"_tmp_args_{timestamp}.json"
+    args_file.write_text(json.dumps({
         "image_path": str(tmp_img),
         "asset_name": name,
         "use_texture": bool(use_texture),
@@ -92,12 +95,12 @@ def generate_3d(
         "decimate_faces": int(decimate_faces),
         "remove_background": bool(remove_background),
         "use_flashvdm": True,
-    })
+    }), encoding="utf-8")
 
     yield None, f"[{time.strftime('%H:%M:%S')}] Spawning worker (clean GPU context)..."
 
     proc = subprocess.Popen(
-        [str(PORTABLE_PY), "-u", str(WORKER_SCRIPT), args_json],
+        [str(PORTABLE_PY), "-u", str(WORKER_SCRIPT), str(args_file)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, env=_get_worker_env(), cwd=str(SCRIPT_DIR),
     )
@@ -118,10 +121,11 @@ def generate_3d(
     stdout = proc.stdout.read().strip()
     retcode = proc.returncode
 
-    try:
-        tmp_img.unlink()
-    except Exception:
-        pass
+    for tmp in (tmp_img, args_file):
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
 
     if retcode != 0:
         log_lines.append(f"\nERROR: Worker exited with code {retcode}")
