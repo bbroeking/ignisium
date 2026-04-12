@@ -32,12 +32,22 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 INPUT_DIR = SCRIPT_DIR / "input"
 TEXTURES_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "textures" / "celestial").resolve()
 
-# Plain pass-through: just resize MJ marbles to TARGET_SIZE square and
-# WebP-compress. The shader (createPlanetShader in shaders.js) handles
-# the sphere mapping with whichever mode (triplanar / equirect) is
-# configured per planet in PlanetDefs.
+# Pipeline:
+#   1. Auto-detect the planet circle in the MJ marble (bright pixels
+#      vs the black background).
+#   2. Crop tight to the planet's bounding box -- removes the black
+#      border that would otherwise wrap onto the back/poles of the
+#      sphere when equirect-mapped.
+#   3. Resize to TARGET_SIZE square, save as WebP.
+# The result has planet content edge-to-edge, so equirect mapping in
+# the shader covers the entire sphere with planet (no black caps, no
+# black back).
 TARGET_SIZE = 1024
 WEBP_QUALITY = 95
+# Brightness threshold above which a pixel counts as "planet content"
+# (vs the black MJ background). Conservative so subtle limb gradients
+# still register as planet.
+PLANET_DETECT_THRESHOLD = 25
 
 # Keyword -> celestial key. First match wins; multi-word keywords with
 # spaces will be checked against the lowercased filename with "_" -> " ".
@@ -64,14 +74,46 @@ def detect_celestial(filename: str) -> str | None:
     return None
 
 
+def crop_to_planet(img: Image.Image) -> Image.Image:
+    """Crop a marble tight to its planet circle, removing the black border.
+
+    Without this, equirect-mapping the marble onto a sphere would put the
+    image's black corners at the back and poles -- producing a planet
+    that's only "lit" on the front-facing side.
+
+    Strategy: find all pixels brighter than PLANET_DETECT_THRESHOLD; that's
+    the planet. Crop the bounding box of those pixels, then expand it to
+    a square so the resulting image isn't anamorphic when stretched onto
+    the sphere.
+    """
+    arr = np.asarray(img.convert("L"))
+    mask = arr > PLANET_DETECT_THRESHOLD
+    if mask.sum() < (arr.shape[0] * arr.shape[1] * 0.02):
+        # Couldn't find a planet -- bail and use the full image.
+        return img
+    ys, xs = np.where(mask)
+    left, right = int(xs.min()), int(xs.max()) + 1
+    top, bottom = int(ys.min()), int(ys.max()) + 1
+    # Expand the bbox to a square centered on the planet so the planet
+    # doesn't get stretched horizontally vs. vertically when we resize.
+    bw = right - left
+    bh = bottom - top
+    side = max(bw, bh)
+    cx = (left + right) // 2
+    cy = (top + bottom) // 2
+    half = side // 2
+    sq_left = max(0, cx - half)
+    sq_top = max(0, cy - half)
+    sq_right = min(img.width, sq_left + side)
+    sq_bottom = min(img.height, sq_top + side)
+    return img.crop((sq_left, sq_top, sq_right, sq_bottom))
+
+
 def process(png_path: Path, out_path: Path) -> tuple[int, int]:
-    """Resize and save as WebP. Returns (src_bytes, out_bytes)."""
+    """Crop tight to the planet circle, resize, save as WebP."""
     src_bytes = png_path.stat().st_size
     img = Image.open(png_path).convert("RGB")
-    w, h = img.size
-    if w != h:
-        m = min(w, h)
-        img = img.crop(((w - m) // 2, (h - m) // 2, (w + m) // 2, (h + m) // 2))
+    img = crop_to_planet(img)
     if img.size != (TARGET_SIZE, TARGET_SIZE):
         img = img.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
     out_path.parent.mkdir(parents=True, exist_ok=True)
