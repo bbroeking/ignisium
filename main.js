@@ -430,17 +430,14 @@ function buildSolarSystem() {
           // even on the dark side without washing out cool ones.
           emissive: new THREE.Color(p.emissive),
           emissiveIntensity: (p.emissiveIntensity ?? 1.0) * 0.25,
-          // Per-planet sphere mapping mode. Triplanar is the default --
-          // it samples the marble from 3 axial projections and blends
-          // them; the marble appears multiple times across the sphere
-          // but reads as "stylized" on noisy textures. PlanetDefs can
-          // override per planet (e.g. Nethara uses 'equirect').
-          mapping: p.mapping ?? 'triplanar',
-          // For equirect, MJ marbles have a black background; sample
-          // only the texture's central band so we don't paint the
-          // poles black. Per-planet override possible via PlanetDefs.
-          uRange: p.uRange ?? (p.mapping === 'equirect' ? 0.7 : 1.0),
-          vRange: p.vRange ?? (p.mapping === 'equirect' ? 0.6 : 1.0),
+          // Standard equirectangular sphere wrap for ALL planets:
+          // texture's u=0 left edge meets u=1 right edge at the back
+          // of the planet, full coverage from pole to pole. This is
+          // how Three.js's default SphereGeometry UV mapping works.
+          // Yes there's pole pinching and a back seam -- those are
+          // inherent to wrapping a 2D image around a sphere -- but
+          // the marble is fully visible and the planet is recognizable.
+          mapping: 'equirect',
         });
         allShaders.push(planetMat);
         mesh.material = planetMat;
