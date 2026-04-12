@@ -434,6 +434,11 @@ function buildSolarSystem() {
           // looks right). Triplanar is great for noisy textures, breaks
           // visibly on horizontal-band gas giants -- those use 'equirect'.
           mapping: p.mapping ?? 'triplanar',
+          // For equirect, MJ marbles have a black background; sample
+          // only the texture's central band so we don't paint the
+          // poles black. Per-planet override possible via PlanetDefs.
+          uRange: p.uRange ?? (p.mapping === 'equirect' ? 0.7 : 1.0),
+          vRange: p.vRange ?? (p.mapping === 'equirect' ? 0.6 : 1.0),
         });
         allShaders.push(planetMat);
         mesh.material = planetMat;

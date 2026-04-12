@@ -503,6 +503,15 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
     //   3-copy effect is jarring. Has one back-seam + pole pinching as
     //   inherent costs.
     mapping = 'triplanar',
+    // For 'equirect' only: how much of the texture's vertical range to
+    // actually sample. MJ marbles have a black background filling the
+    // corners; sampling the full y range bleeds that black into the
+    // planet's polar caps. vRange=0.6 means "only sample the middle 60%
+    // of the texture vertically" -- the marble's actual content -- and
+    // stretch it across the whole sphere. Same for uRange (horizontal,
+    // for marbles where the orb doesn't fill side-to-side).
+    vRange = 1.0,
+    uRange = 1.0,
   } = opts;
 
   // The texture-sampling step is the only thing that differs between
@@ -512,6 +521,11 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
         vec3 n = normalize(vLocalNormal);
         float u = atan(n.z, n.x) / (2.0 * 3.14159265) + 0.5;
         float v = asin(clamp(n.y, -1.0, 1.0)) / 3.14159265 + 0.5;
+        // Compress sampling to the texture's central band so we never
+        // read the black background at the corners. (uURange/uVRange < 1
+        // means a tighter sample window; defaults of 1 sample everything.)
+        u = (u - 0.5) * uURange + 0.5;
+        v = (v - 0.5) * uVRange + 0.5;
         return texture2D(uTexture, vec2(u, v)).rgb;
       }
   ` : `
@@ -542,6 +556,8 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
       uEmissive:          { value: emissive },
       uEmissiveIntensity: { value: emissiveIntensity },
       uTime:              { value: 0 },
+      uVRange:            { value: vRange },
+      uURange:            { value: uRange },
     },
     vertexShader: `
       varying vec3 vLocalPos;     // object-space (texture sticks to planet)
@@ -566,6 +582,8 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
       uniform vec3 uEmissive;
       uniform float uEmissiveIntensity;
       uniform float uTime;
+      uniform float uVRange;
+      uniform float uURange;
       varying vec3 vLocalPos;
       varying vec3 vLocalNormal;
       varying vec3 vWorldNormal;
