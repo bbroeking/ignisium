@@ -11,6 +11,7 @@ import {
   createShieldShader, createEnergyFlowShader, createNebulaShader,
   createHologramShader, createStarfieldShader,
   createTexturedBuildingShader, createPlanetShader,
+  createProceduralPlanetShader,
   HeatDistortionShader, VignetteGradeShader,
 } from './shaders.js';
 
@@ -340,36 +341,19 @@ function buildSolarSystem() {
   allShaders.push(nebMat);
   solarScene.add(new THREE.Mesh(new THREE.SphereGeometry(800, 24, 24), nebMat));
 
-  // Sun. Default to the procedural sunShader; if a baked sun texture
-  // exists at /assets/textures/celestial/sun.webp, swap to the textured
-  // planet shader in unlit mode (the sun lights the system, so it
-  // shouldn't itself be shaded by anything). Equirect mapping keeps
-  // any radial features (granulation, sunspots) wrapping cleanly.
-  const sun = new THREE.Mesh(new THREE.SphereGeometry(8, 32, 32), sunShader);
+  // Sun -- procedural surface generated entirely in shader from 3D noise.
+  // No image, full 360 coverage, animated photosphere.
+  const sunCfg = PLANET_SHADER_CONFIGS.sun || {};
+  const sunMat = createProceduralPlanetShader(8, {
+    ...sunCfg,
+    ambient: sunCfg.ambient ? new THREE.Vector3(...sunCfg.ambient) : undefined,
+    sunColor: sunCfg.sunColor ? new THREE.Vector3(...sunCfg.sunColor) : undefined,
+    emissive: sunCfg.emissive ? new THREE.Color(sunCfg.emissive) : undefined,
+  });
+  allShaders.push(sunMat);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(8, 64, 64), sunMat);
   sun.name = 'sun';
   solarScene.add(sun);
-  new THREE.TextureLoader().load(
-    '/assets/textures/celestial/sun.webp',
-    tex => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.generateMipmaps = true;
-      const sunMat = createPlanetShader(tex, 8, {
-        // Unlit: full ambient, no directional, brightness 1.0 -> the
-        // shader emits the texture color verbatim. Wrap is irrelevant.
-        ambient: new THREE.Vector3(1, 1, 1),
-        sunColor: new THREE.Vector3(0, 0, 0),
-        brightness: 1.0,
-        mapping: 'equirect',
-      });
-      allShaders.push(sunMat);
-      sun.material = sunMat;
-    },
-    undefined,
-    () => { /* keep procedural sunShader as fallback */ },
-  );
 
   // Sun corona layers -- thinner now that the textured sun has its own
   // surface detail; the corona is a soft halo, not a glow that dominates.
@@ -392,60 +376,33 @@ function buildSolarSystem() {
     orbit.rotation.x = -Math.PI / 2;
     solarScene.add(orbit);
 
-    // Planet sphere. Default material is a flat-colour fallback used
-    // until the celestial texture loads (and as a permanent fallback
-    // if no texture is on disk -- e.g. the sun is still procedural).
-    let mat = new THREE.MeshStandardMaterial({
-      color: p.color,
-      emissive: p.emissive,
-      emissiveIntensity: p.emissiveIntensity ?? 1.0,
-      roughness: 0.6,
-      metalness: 0.0,
+    // Planet -- procedural shader generates the surface entirely from
+    // 3D noise. No image, no UV mapping, no seams, no pole pinching;
+    // the planet has continuous detail across the entire sphere.
+    // Lookup per-planet config by name (lowercased); fall back to a
+    // generic ramp if the planet isn't in PLANET_SHADER_CONFIGS.
+    const cfg = PLANET_SHADER_CONFIGS[p.name.toLowerCase()] || {
+      colorStops: [
+        { stop: 0.0, color: p.color },
+        { stop: 1.0, color: p.emissive ?? p.color },
+      ],
+    };
+    const planetMat = createProceduralPlanetShader(p.radius, {
+      ...cfg,
+      ambient: cfg.ambient ? new THREE.Vector3(...cfg.ambient) : undefined,
+      sunColor: cfg.sunColor ? new THREE.Vector3(...cfg.sunColor) : undefined,
+      emissive: cfg.emissive ? new THREE.Color(cfg.emissive) : undefined,
+      // Initial light dir; updated per frame from sun -> planet in
+      // animateSolarSystem so the lit hemisphere tracks the sun.
+      lightDir: new THREE.Vector3(1, 0, 0),
     });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.radius, 32, 32), mat);
+    allShaders.push(planetMat);
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(p.radius, 64, 64),
+      planetMat,
+    );
     mesh.userData = { planet: p };
     mesh.name = p.name;
-
-    // Async-load the baked celestial texture; on success swap the
-    // material for the triplanar planet shader so the square MJ marble
-    // wraps without UV stretch or pole pinching. Light direction is
-    // recomputed each frame in the planet animation loop so the lit
-    // hemisphere always faces the sun at origin.
-    new THREE.TextureLoader().load(
-      `/assets/textures/celestial/${p.name.toLowerCase()}.webp`,
-      tex => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        // Crank anisotropic filtering -- biggest free sharpness win at
-        // oblique viewing angles. Hits the GPU's max (typically 16x).
-        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        tex.generateMipmaps = true;
-        tex.needsUpdate = true;
-        const planetMat = createPlanetShader(tex, p.radius, {
-          // Initial light dir; updated per-frame from sun -> planet.
-          lightDir: new THREE.Vector3(1, 0, 0),
-          // Defaults handle ambient/sun/brightness/wrap; we just add
-          // a self-glow tint so hot planets (ignisium) stay readable
-          // even on the dark side without washing out cool ones.
-          emissive: new THREE.Color(p.emissive),
-          emissiveIntensity: (p.emissiveIntensity ?? 1.0) * 0.25,
-          // Standard equirectangular sphere wrap for ALL planets:
-          // texture's u=0 left edge meets u=1 right edge at the back
-          // of the planet, full coverage from pole to pole. This is
-          // how Three.js's default SphereGeometry UV mapping works.
-          // Yes there's pole pinching and a back seam -- those are
-          // inherent to wrapping a 2D image around a sphere -- but
-          // the marble is fully visible and the planet is recognizable.
-          mapping: 'equirect',
-        });
-        allShaders.push(planetMat);
-        mesh.material = planetMat;
-        mat = planetMat; // for any external reference; harmless otherwise
-      },
-      undefined,
-      () => { /* missing texture: keep MeshStandardMaterial fallback */ },
-    );
 
     // Atmosphere -- thinner, less obscuring glow shell so the planet's
     // surface details stay readable. Was intensity 1.8 / radius x1.2.
@@ -1020,6 +977,103 @@ const BUILDING_GLBS = {
   shipyard:          '/assets/models/buildings/shipyard.glb',
   trade_depot:       '/assets/models/buildings/trade_depot.glb',
   shield_gen:        '/assets/models/buildings/shield_gen.glb',
+};
+
+// ============================================================
+// PROCEDURAL PLANET SHADER CONFIGS
+// Per-planet noise params + color ramps + extras (bands/clouds/glow).
+// Keys must match PlanetDefs.name (lowercased).
+// ============================================================
+const PLANET_SHADER_CONFIGS = {
+  ignisium: {
+    baseScale: 2.5,
+    octaves: 5,
+    roughness: 0.55,
+    colorStops: [
+      { stop: 0.00, color: 0x110b06 },  // deep obsidian
+      { stop: 0.45, color: 0x2b1a08 },  // dark basalt
+      { stop: 0.55, color: 0x6d2810 },  // crusted lava
+      { stop: 0.70, color: 0xc04020 },  // glowing magma
+      { stop: 0.85, color: 0xff8a30 },  // bright orange flow
+      { stop: 1.00, color: 0xffe080 },  // hottest spots
+    ],
+    emissive: 0xff5520,
+    emissiveIntensity: 0.55,
+    ambient: [0.30, 0.18, 0.12],
+    timeScale: 0.05,
+  },
+  crystara: {
+    baseScale: 3.2,
+    octaves: 5,
+    roughness: 0.6,
+    colorStops: [
+      { stop: 0.00, color: 0x0c2545 },
+      { stop: 0.30, color: 0x1a4a7c },
+      { stop: 0.55, color: 0x4ea0d4 },
+      { stop: 0.78, color: 0x9fdcec },
+      { stop: 0.95, color: 0xffffff },
+    ],
+    ambient: [0.40, 0.46, 0.55],
+  },
+  verdania: {
+    baseScale: 2.0,
+    octaves: 6,
+    roughness: 0.55,
+    colorStops: [
+      { stop: 0.00, color: 0x081a30 },
+      { stop: 0.40, color: 0x1858a0 },
+      { stop: 0.50, color: 0x76a050 },
+      { stop: 0.65, color: 0x3c7c2c },
+      { stop: 0.82, color: 0x6c5c3a },
+      { stop: 0.95, color: 0xeeeeee },
+    ],
+    cloudOpacity: 0.45,
+    cloudScale: 4.5,
+    cloudDrift: 0.04,
+    timeScale: 0.05,
+  },
+  nethara: {
+    baseScale: 1.5,
+    octaves: 4,
+    roughness: 0.55,
+    bandIntensity: 0.85,
+    bandFrequency: 4.0,
+    bandTurbulence: 0.9,
+    colorStops: [
+      { stop: 0.00, color: 0x6c1a44 },
+      { stop: 0.30, color: 0xa83870 },
+      { stop: 0.55, color: 0xc66050 },
+      { stop: 0.78, color: 0xe0a050 },
+      { stop: 1.00, color: 0xfde6a0 },
+    ],
+    timeScale: 0.03,
+  },
+  glacius: {
+    baseScale: 2.8,
+    octaves: 5,
+    roughness: 0.6,
+    colorStops: [
+      { stop: 0.00, color: 0x152838 },
+      { stop: 0.45, color: 0x4a7090 },
+      { stop: 0.70, color: 0xa8c8d8 },
+      { stop: 0.95, color: 0xf0f8ff },
+    ],
+    ambient: [0.4, 0.48, 0.55],
+  },
+  sun: {
+    baseScale: 4.0,
+    octaves: 4,
+    roughness: 0.5,
+    colorStops: [
+      { stop: 0.00, color: 0xc02000 },
+      { stop: 0.40, color: 0xff8000 },
+      { stop: 0.70, color: 0xffd040 },
+      { stop: 1.00, color: 0xffffff },
+    ],
+    unlit: true,
+    timeScale: 0.25,
+    brightness: 1.4,
+  },
 };
 
 // type -> prepared THREE.Group template, cloned for each placement

@@ -618,6 +618,210 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
 }
 
 // ============================================================
+// 3c. PROCEDURAL PLANET — surface generated entirely in the shader
+//     from 3D noise (no input image). Continuous over the whole
+//     sphere, no seams, no pole pinching, infinite detail.
+// ============================================================
+export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
+  const {
+    // Surface noise
+    baseScale = 1.5,
+    octaves = 5,
+    roughness = 0.55,
+    // Color ramp -- array of {stop: 0..1, color: hex}
+    colorStops = [
+      { stop: 0.0, color: 0x000000 },
+      { stop: 1.0, color: 0xffffff },
+    ],
+    // Optional latitude bands (gas giants). bandIntensity 0..1.
+    bandIntensity = 0.0,
+    bandFrequency = 4.0,
+    bandTurbulence = 0.8,
+    // Optional cloud overlay (Earth-likes). cloudOpacity 0..1.
+    cloudOpacity = 0.0,
+    cloudScale = 4.0,
+    cloudDrift = 0.05,
+    cloudColor = 0xffffff,
+    // Lighting
+    lightDir = new THREE.Vector3(1, 0, 0),
+    ambient = new THREE.Vector3(0.45, 0.45, 0.55),
+    sunColor = new THREE.Vector3(0.80, 0.75, 0.70),
+    brightness = 1.2,
+    wrap = 0.5,
+    // Self-glow (lava/sun)
+    emissive = new THREE.Color(0x000000),
+    emissiveIntensity = 0.0,
+    // Skip lighting entirely (sun is its own light source)
+    unlit = false,
+    // Animation speed multiplier
+    timeScale = 0.05,
+  } = opts;
+
+  // Pad colorStops to fixed array of 8 (uniform array size in GLSL).
+  const STOPS = 8;
+  const positions = new Array(STOPS).fill(1.0);
+  const colors = [];
+  for (let i = 0; i < STOPS; i++) {
+    if (i < colorStops.length) {
+      positions[i] = colorStops[i].stop;
+      colors.push(new THREE.Color(colorStops[i].color));
+    } else {
+      const fallback = colorStops[colorStops.length - 1].color;
+      colors.push(new THREE.Color(fallback));
+    }
+  }
+  const stopCount = Math.min(colorStops.length, STOPS);
+
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime:              { value: 0 },
+      uTimeScale:         { value: timeScale },
+      uRadius:            { value: radius },
+      uBaseScale:         { value: baseScale },
+      uRoughness:         { value: roughness },
+      uOctaves:           { value: octaves },
+      uColors:            { value: colors },
+      uStops:             { value: positions },
+      uStopCount:         { value: stopCount },
+      uBandIntensity:     { value: bandIntensity },
+      uBandFrequency:     { value: bandFrequency },
+      uBandTurbulence:    { value: bandTurbulence },
+      uCloudOpacity:      { value: cloudOpacity },
+      uCloudScale:        { value: cloudScale },
+      uCloudDrift:        { value: cloudDrift },
+      uCloudColor:        { value: new THREE.Color(cloudColor) },
+      uLightDir:          { value: lightDir.clone().normalize() },
+      uAmbient:           { value: ambient },
+      uSunColor:          { value: sunColor },
+      uBrightness:        { value: brightness },
+      uWrap:              { value: wrap },
+      uEmissive:          { value: emissive },
+      uEmissiveIntensity: { value: emissiveIntensity },
+      uUnlit:             { value: unlit ? 1.0 : 0.0 },
+    },
+    vertexShader: `
+      varying vec3 vLocalPos;
+      varying vec3 vWorldNormal;
+      void main() {
+        vLocalPos = position;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      ${NOISE_LIB}
+
+      uniform float uTime;
+      uniform float uTimeScale;
+      uniform float uRadius;
+      uniform float uBaseScale;
+      uniform float uRoughness;
+      uniform int uOctaves;
+      uniform vec3 uColors[8];
+      uniform float uStops[8];
+      uniform int uStopCount;
+      uniform float uBandIntensity;
+      uniform float uBandFrequency;
+      uniform float uBandTurbulence;
+      uniform float uCloudOpacity;
+      uniform float uCloudScale;
+      uniform float uCloudDrift;
+      uniform vec3 uCloudColor;
+      uniform vec3 uLightDir;
+      uniform vec3 uAmbient;
+      uniform vec3 uSunColor;
+      uniform float uBrightness;
+      uniform float uWrap;
+      uniform vec3 uEmissive;
+      uniform float uEmissiveIntensity;
+      uniform float uUnlit;
+      varying vec3 vLocalPos;
+      varying vec3 vWorldNormal;
+
+      // Fractal Brownian motion -- layer multiple octaves of 3D simplex
+      // noise at doubling frequencies and decaying amplitude. Loop is
+      // fixed-bound for GLSL ES compatibility.
+      float fbm(vec3 p, float roughnessV) {
+        float total = 0.0;
+        float amp = 1.0;
+        float freq = 1.0;
+        float maxAmp = 0.0;
+        for (int i = 0; i < 8; i++) {
+          if (i >= uOctaves) break;
+          total += snoise3(p * freq) * amp;
+          maxAmp += amp;
+          amp *= roughnessV;
+          freq *= 2.0;
+        }
+        return total / maxAmp;
+      }
+
+      // Sample a soft-stepped color ramp. Sequential mix with smoothstep
+      // gives smooth transitions between the (up to 8) color stops.
+      vec3 sampleColorRamp(float t) {
+        t = clamp(t, 0.0, 1.0);
+        vec3 c = uColors[0];
+        for (int i = 1; i < 8; i++) {
+          if (i >= uStopCount) break;
+          c = mix(c, uColors[i], smoothstep(uStops[i-1], uStops[i], t));
+        }
+        return c;
+      }
+
+      void main() {
+        float t = uTime * uTimeScale;
+
+        // Surface noise on the unit sphere position. Using the normalised
+        // local position keeps the noise scale consistent regardless of
+        // the planet's actual radius.
+        vec3 sp = normalize(vLocalPos);
+        vec3 p = sp * uBaseScale;
+        float surfNoise = fbm(p, uRoughness);
+        float surfaceVal = surfNoise * 0.5 + 0.5;  // [-1,1] -> [0,1]
+
+        // Optional latitude bands (gas giants). Bands wrap around the
+        // vertical axis with noise-driven turbulence so they don't
+        // look like a barber pole.
+        if (uBandIntensity > 0.001) {
+          float lat = sp.y;  // -1 (south pole) to 1 (north pole)
+          float wobble = fbm(p * 0.4, 0.55) * uBandTurbulence;
+          float band = sin(lat * uBandFrequency * 3.14159 + wobble * 2.0);
+          band = band * 0.5 + 0.5;
+          surfaceVal = mix(surfaceVal, band, uBandIntensity);
+        }
+
+        vec3 baseColor = sampleColorRamp(surfaceVal);
+
+        // Optional cloud overlay -- second noise layer drifting over
+        // time. Only the high values become visible cloud.
+        if (uCloudOpacity > 0.001) {
+          vec3 cloudP = sp * uCloudScale + vec3(t * uCloudDrift, 0.0, 0.0);
+          float cloudNoise = fbm(cloudP, 0.55);
+          float cloudMask = smoothstep(0.05, 0.45, cloudNoise) * uCloudOpacity;
+          baseColor = mix(baseColor, uCloudColor, cloudMask);
+        }
+
+        // Lighting. Unlit mode (sun) outputs baseColor*brightness directly.
+        vec3 lit;
+        if (uUnlit > 0.5) {
+          lit = baseColor * uBrightness;
+        } else {
+          float NdotL = dot(normalize(vWorldNormal), normalize(uLightDir));
+          float diffuse = max(NdotL * (1.0 - uWrap) + uWrap, 0.0);
+          lit = baseColor * (uAmbient + uSunColor * diffuse) * uBrightness;
+        }
+
+        // Emissive lift -- modulated by the surface so glow tracks
+        // bright areas (e.g. magma rivers self-glow on dark side).
+        vec3 emit = uEmissive * uEmissiveIntensity * baseColor;
+
+        gl_FragColor = vec4(lit + emit, 1.0);
+      }
+    `,
+  });
+}
+
+// ============================================================
 // 4. SHIELD / FORCE FIELD — Hexagonal grid + impact waves
 // ============================================================
 export function createShieldShader() {
