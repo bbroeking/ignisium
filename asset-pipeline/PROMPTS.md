@@ -4,7 +4,15 @@ Source of truth: `asset-pipeline/prompts.py`. The Pipeline Queue in
 the Gradio app reads from that file, NOT this markdown. Edit the dict
 and the dropdown updates on next app restart.
 
-## Team-color convention (read this first)
+## Asset categories
+
+| Category   | Pipeline                              | Install path                              |
+|------------|---------------------------------------|-------------------------------------------|
+| Building   | MJ -> Hunyuan3D -> GLB                | `public/assets/models/buildings/`         |
+| Unit       | MJ -> Hunyuan3D -> GLB                | `public/assets/models/units/`             |
+| Celestial  | MJ -> PNG (texture, NOT 3D)           | `public/assets/textures/celestial/`       |
+
+## Team-color convention (buildings + units)
 
 Every per-player tinted region is described as **bright magenta accent panels/stripes**.
 The runtime shader (`shaders.js`, `createBuildingShader`) detects pixels close to
@@ -15,16 +23,25 @@ they are outside the magenta hot range and will not be re-tinted.
 
 **Note on existing assets:** the GLBs already in `asset-pipeline/output/` were
 generated with the previous *cyan* convention. They keep working in-game with
-no errors -- the magenta-mask shader doesn't fire on cyan, so those buildings
+no errors -- the magenta-mask shader doesnt fire on cyan, so those buildings
 render with permanent cyan trim regardless of player. Regenerate them only if
 you want them to participate in per-player team tinting.
 
-All prompts follow these rules:
+All building/unit prompts follow these rules:
 - isometric 3/4 view, centered isolated 3D game asset
 - pure white background, no atmosphere, no shadow, no environment
 - no emissive lights, no glow (Hunyuan3D bakes those as lump-mesh)
 - bright magenta = team-color reservation
 - `--ar 1:1 --s 50` (low stylization, MJ v7 compatible)
+
+## Celestial convention (planets + sun)
+
+Celestial assets are TEXTURE prompts -- the MJ output is a PNG that wraps onto
+an existing `SphereGeometry` in main.js, NOT a 3D model. Aesthetic target is
+Spore-style stylized planet illustration.
+- single spherical orb centered on pure black background
+- vivid saturated stylized colors, hand-painted illustration style
+- `--ar 1:1 --s 100` (higher stylization than buildings)
 
 ---
 
@@ -296,5 +313,69 @@ A small sci-fi engineer drone robot, hovering disk-shaped chassis with two artic
 
 ```
 A small sci-fi scout drone aircraft, sleek arrowhead-shaped fuselage with two slim wing-mounted sensor pods, single rear thruster, central optical sensor lens at the front, no cockpit, matte dark grey hull with bright magenta accent stripes on the wing leading edges, isometric 3/4 view, centered isolated 3D game asset miniature, single character or vehicle, simple recognizable silhouette, hard surface design, sharp clean geometry, studio product render, even softbox lighting, no harsh shadows, no rim light, matte painted dark gunmetal grey with bright magenta accent panels reserved for team color, painted PBR, no emissive lights, no glow, plain pure white background, single object centered in frame, no display base, no platform, no text, no logo, no watermark, no environment, no atmosphere, no smoke, no particles, no ground plane, no shadow --ar 1:1 --s 50
+```
+
+---
+
+# Celestial (textures, not 3D)
+
+## Ignisium (Volcanic)  (`ignisium`)
+
+**Subject:**
+
+> stylized fictional volcanic planet viewed from deep space, cracked obsidian-black crust webbed with glowing red-orange magma rivers, bright lava lakes pooled in deep craters, billowing ash plumes drifting from active volcanoes, dark rocky highlands, vivid saturated reds and oranges against black rock
+
+**Expanded MJ prompt:**
+
+```
+A stylized fictional volcanic planet viewed from deep space, cracked obsidian-black crust webbed with glowing red-orange magma rivers, bright lava lakes pooled in deep craters, billowing ash plumes drifting from active volcanoes, dark rocky highlands, vivid saturated reds and oranges against black rock, single spherical orb centered in the frame, orb fills 70 percent of the square, viewed from deep space at slight 3/4 angle, vivid saturated stylized colors, hand-painted illustration style like Spore concept art, soft global illumination, plain pure black background, no stars, no nebula, no spaceships, no text, no logo, no watermark, no UI elements --ar 1:1 --s 100
+```
+
+## Crystara (Crystal Ice)  (`crystara`)
+
+**Subject:**
+
+> stylized fictional crystal ice planet viewed from deep space, thick refractive crystalline ice continents, prismatic shards catching cyan and turquoise light, vast frozen oceans of pale aquamarine, swirling thin pearl-white cloud bands, glittering polar ice caps, vivid saturated blues and whites
+
+**Expanded MJ prompt:**
+
+```
+A stylized fictional crystal ice planet viewed from deep space, thick refractive crystalline ice continents, prismatic shards catching cyan and turquoise light, vast frozen oceans of pale aquamarine, swirling thin pearl-white cloud bands, glittering polar ice caps, vivid saturated blues and whites, single spherical orb centered in the frame, orb fills 70 percent of the square, viewed from deep space at slight 3/4 angle, vivid saturated stylized colors, hand-painted illustration style like Spore concept art, soft global illumination, plain pure black background, no stars, no nebula, no spaceships, no text, no logo, no watermark, no UI elements --ar 1:1 --s 100
+```
+
+## Verdania (Temperate)  (`verdania`)
+
+**Subject:**
+
+> stylized fictional Earth-like temperate planet viewed from deep space, lush emerald green continents with golden-yellow plains and dark forest belts, deep cobalt blue oceans, soft swirling white cumulus cloud bands, white polar ice caps, vivid saturated greens and blues, friendly inviting feel
+
+**Expanded MJ prompt:**
+
+```
+A stylized fictional Earth-like temperate planet viewed from deep space, lush emerald green continents with golden-yellow plains and dark forest belts, deep cobalt blue oceans, soft swirling white cumulus cloud bands, white polar ice caps, vivid saturated greens and blues, friendly inviting feel, single spherical orb centered in the frame, orb fills 70 percent of the square, viewed from deep space at slight 3/4 angle, vivid saturated stylized colors, hand-painted illustration style like Spore concept art, soft global illumination, plain pure black background, no stars, no nebula, no spaceships, no text, no logo, no watermark, no UI elements --ar 1:1 --s 100
+```
+
+## Nethara (Gas Giant)  (`nethara`)
+
+**Subject:**
+
+> stylized fictional gas giant planet viewed from deep space, massive horizontal swirling atmospheric bands in vivid pink magenta amber and purple, prominent great storm vortex on one hemisphere, turbulent eddies between bands, no solid surface, painterly hand-illustrated bands like a marble
+
+**Expanded MJ prompt:**
+
+```
+A stylized fictional gas giant planet viewed from deep space, massive horizontal swirling atmospheric bands in vivid pink magenta amber and purple, prominent great storm vortex on one hemisphere, turbulent eddies between bands, no solid surface, painterly hand-illustrated bands like a marble, single spherical orb centered in the frame, orb fills 70 percent of the square, viewed from deep space at slight 3/4 angle, vivid saturated stylized colors, hand-painted illustration style like Spore concept art, soft global illumination, plain pure black background, no stars, no nebula, no spaceships, no text, no logo, no watermark, no UI elements --ar 1:1 --s 100
+```
+
+## Sun (Star)  (`sun`)
+
+**Subject:**
+
+> stylized fictional yellow-orange G-type star viewed from space, intense bright golden-white photosphere with darker convection cell granulation across the surface, several prominent solar flare arcs curling off the limb, subtle sunspots, hot intense vivid orange-yellow glow, no rays, single solid orb
+
+**Expanded MJ prompt:**
+
+```
+A stylized fictional yellow-orange G-type star viewed from space, intense bright golden-white photosphere with darker convection cell granulation across the surface, several prominent solar flare arcs curling off the limb, subtle sunspots, hot intense vivid orange-yellow glow, no rays, single solid orb, single spherical orb centered in the frame, orb fills 70 percent of the square, viewed from deep space at slight 3/4 angle, vivid saturated stylized colors, hand-painted illustration style like Spore concept art, soft global illumination, plain pure black background, no stars, no nebula, no spaceships, no text, no logo, no watermark, no UI elements --ar 1:1 --s 100
 ```
 

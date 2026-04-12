@@ -221,13 +221,27 @@ PROMPT_TEMPLATE_UNIT = (
     "--ar 1:1 --s 50"
 )
 
-# Material phrase used for both templates. Magenta is the team-color
-# reservation -- the runtime shader detects bright magenta pixels in the
-# baked PBR texture and replaces them with the player's team color. See
-# the convention block at the top of prompts.py.
+# Material phrase used for building/unit templates. Magenta is the
+# team-color reservation -- the runtime shader detects bright magenta
+# pixels in the baked PBR texture and replaces them with the player's
+# team color. See the convention block at the top of prompts.py.
 MATERIAL_PHRASE = (
     "matte painted dark gunmetal grey with bright magenta accent panels "
     "reserved for team color"
+)
+
+# Celestial template -- planets/sun become flat textures wrapped onto an
+# existing SphereGeometry in main.js, NOT 3D models. Drops the
+# "no glow / no atmosphere / no environment" rules (a planet's atmosphere
+# IS its appearance). Single orb, dark background for clean limb extraction.
+PROMPT_TEMPLATE_CELESTIAL = (
+    "{subject_phrase}, single spherical orb centered in the frame, "
+    "orb fills 70 percent of the square, viewed from deep space at slight 3/4 angle, "
+    "vivid saturated stylized colors, hand-painted illustration style "
+    "like Spore concept art, soft global illumination, "
+    "plain pure black background, no stars, no nebula, no spaceships, "
+    "no text, no logo, no watermark, no UI elements "
+    "--ar 1:1 --s 100"
 )
 
 OLLAMA_SYSTEM_PROMPT = """You are a Midjourney prompt expert specializing in image-to-3D pipelines.
@@ -315,6 +329,12 @@ class PromptGenerator:
     def _template_generate(self, subject: str, kind: str = "building") -> str:
         """Pure template fill — no LLM, but always produces a usable prompt."""
         s = subject.strip().rstrip(",.")
+        if kind == "celestial":
+            # Celestial textures: subject already starts with "stylized
+            # fictional ... planet/star". No material phrase, no "small
+            # model" wrapping, no team-color reservation.
+            subject_phrase = s if s.lower().startswith("a ") else f"A {s}"
+            return PROMPT_TEMPLATE_CELESTIAL.format(subject_phrase=subject_phrase)
         if kind == "unit":
             # Units don't get the "small sci-fi ___ model" wrapping; their
             # subject already describes a single character or vehicle.

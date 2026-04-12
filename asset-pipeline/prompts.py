@@ -277,18 +277,95 @@ UNIT_PROMPTS = {
 # ---------------------------------------------------------------------------
 # Lookup helpers
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# CELESTIAL TEXTURES (planets, sun)
+# ---------------------------------------------------------------------------
+# These are NOT for the Hunyuan3D mesh pipeline. They are TEXTURE prompts:
+# Midjourney -> PNG -> wrapped onto an existing SphereGeometry in main.js
+# as a `map:` (planets) or `emissiveMap:` (sun).
+#
+# Aesthetic target: Spore-style stylized planet illustration -- saturated,
+# exaggerated, hand-painted, single orb centered on pure black background.
+# No spaceships, no stars, no nebulae in frame. The orb fills ~70% of the
+# square so we have room to extract the alpha around the limb.
+#
+# Per-planet keys MUST match the names in main.js PlanetDefs so the texture
+# loader can find the right file: ignisium, crystara, verdania, nethara, sun.
+CELESTIAL_PROMPTS = {
+    "ignisium": {
+        "label": "Ignisium (Volcanic)",
+        "subject": (
+            "stylized fictional volcanic planet viewed from deep space, "
+            "cracked obsidian-black crust webbed with glowing red-orange "
+            "magma rivers, bright lava lakes pooled in deep craters, "
+            "billowing ash plumes drifting from active volcanoes, dark "
+            "rocky highlands, vivid saturated reds and oranges against "
+            "black rock"
+        ),
+    },
+    "crystara": {
+        "label": "Crystara (Crystal Ice)",
+        "subject": (
+            "stylized fictional crystal ice planet viewed from deep space, "
+            "thick refractive crystalline ice continents, prismatic shards "
+            "catching cyan and turquoise light, vast frozen oceans of "
+            "pale aquamarine, swirling thin pearl-white cloud bands, "
+            "glittering polar ice caps, vivid saturated blues and whites"
+        ),
+    },
+    "verdania": {
+        "label": "Verdania (Temperate)",
+        "subject": (
+            "stylized fictional Earth-like temperate planet viewed from "
+            "deep space, lush emerald green continents with golden-yellow "
+            "plains and dark forest belts, deep cobalt blue oceans, soft "
+            "swirling white cumulus cloud bands, white polar ice caps, "
+            "vivid saturated greens and blues, friendly inviting feel"
+        ),
+    },
+    "nethara": {
+        "label": "Nethara (Gas Giant)",
+        "subject": (
+            "stylized fictional gas giant planet viewed from deep space, "
+            "massive horizontal swirling atmospheric bands in vivid pink "
+            "magenta amber and purple, prominent great storm vortex on "
+            "one hemisphere, turbulent eddies between bands, no solid "
+            "surface, painterly hand-illustrated bands like a marble"
+        ),
+    },
+    "sun": {
+        "label": "Sun (Star)",
+        "subject": (
+            "stylized fictional yellow-orange G-type star viewed from "
+            "space, intense bright golden-white photosphere with darker "
+            "convection cell granulation across the surface, several "
+            "prominent solar flare arcs curling off the limb, subtle "
+            "sunspots, hot intense vivid orange-yellow glow, no rays, "
+            "single solid orb"
+        ),
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Lookup helpers
+# ---------------------------------------------------------------------------
 def get_subject(asset_name: str) -> str:
-    """Return the subject text for a given asset name (building or unit)."""
-    info = BUILDING_PROMPTS.get(asset_name) or UNIT_PROMPTS.get(asset_name)
+    """Return the subject text for a given asset name (any category)."""
+    info = (BUILDING_PROMPTS.get(asset_name)
+            or UNIT_PROMPTS.get(asset_name)
+            or CELESTIAL_PROMPTS.get(asset_name))
     return info["subject"] if info else ""
 
 
 def get_kind(asset_name: str) -> str:
-    """Returns 'building', 'unit', or '' if unknown."""
+    """Returns 'building', 'unit', 'celestial', or '' if unknown."""
     if asset_name in BUILDING_PROMPTS:
         return "building"
     if asset_name in UNIT_PROMPTS:
         return "unit"
+    if asset_name in CELESTIAL_PROMPTS:
+        return "celestial"
     return ""
 
 
@@ -296,6 +373,7 @@ def list_choices():
     """All assets as (label, asset_name, kind) tuples for UI dropdowns."""
     out = [(v["label"], k, "building") for k, v in BUILDING_PROMPTS.items()]
     out += [(v["label"], k, "unit") for k, v in UNIT_PROMPTS.items()]
+    out += [(v["label"], k, "celestial") for k, v in CELESTIAL_PROMPTS.items()]
     return out
 
 
@@ -307,3 +385,8 @@ def list_buildings():
 def list_units():
     """Units only -- (label, asset_name) tuples."""
     return [(v["label"], k) for k, v in UNIT_PROMPTS.items()]
+
+
+def list_celestial():
+    """Celestial bodies only (planets, sun) -- (label, asset_name) tuples."""
+    return [(v["label"], k) for k, v in CELESTIAL_PROMPTS.items()]
