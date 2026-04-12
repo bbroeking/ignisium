@@ -519,11 +519,13 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
   const samplerCode = mapping === 'equirect' ? `
       vec3 sampleSurface() {
         vec3 n = normalize(vLocalNormal);
-        float u = atan(n.z, n.x) / (2.0 * 3.14159265) + 0.5;
+        // atan(x, z) so that lon=0 (u=0.5) corresponds to the +Z direction
+        // -- which is the convention used by install_textures.spherify
+        // when generating the equirect map. Any other arg order rotates
+        // the marble's "front view" off the camera-facing side.
+        float u = atan(n.x, n.z) / (2.0 * 3.14159265) + 0.5;
         float v = asin(clamp(n.y, -1.0, 1.0)) / 3.14159265 + 0.5;
-        // Compress sampling to the texture's central band so we never
-        // read the black background at the corners. (uURange/uVRange < 1
-        // means a tighter sample window; defaults of 1 sample everything.)
+        // Optional sample-range compression (defaults 1.0 = no clamp).
         u = (u - 0.5) * uURange + 0.5;
         v = (v - 0.5) * uVRange + 0.5;
         return texture2D(uTexture, vec2(u, v)).rgb;

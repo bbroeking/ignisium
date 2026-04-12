@@ -69,6 +69,31 @@ def detect_celestial(filename: str) -> str | None:
     return None
 
 
+def detect_planet_bounds(marble: Image.Image) -> tuple[float, float, float]:
+    """Find the (cx, cy, R) of the planet's circular silhouette in a marble
+    image with a black background. Falls back to centered defaults if it
+    can't find a clear orb.
+    """
+    arr = np.asarray(marble.convert("L"))     # grayscale
+    h, w = arr.shape
+    # "Planet" = pixels brighter than near-black. Threshold conservative
+    # enough that subtle limb gradients still count.
+    mask = arr > 25
+    if mask.sum() < (w * h * 0.02):
+        # Couldn't find anything bright. Fall back to centered default.
+        return w / 2.0, h / 2.0, min(w, h) * PLANET_RADIUS_FRAC
+    ys, xs = np.where(mask)
+    cx = (xs.min() + xs.max()) / 2.0
+    cy = (ys.min() + ys.max()) / 2.0
+    # Use the larger half-extent (the orb might extend slightly beyond
+    # the bounding box symmetry; pick the bigger axis to avoid clipping).
+    R = max(xs.max() - cx, ys.max() - cy, cx - xs.min(), cy - ys.min())
+    # Nudge R down a touch so we don't accidentally sample the black
+    # beyond the limb where MJ's anti-aliasing fades to dark.
+    R *= 0.97
+    return float(cx), float(cy), float(R)
+
+
 def spherify(marble: Image.Image) -> Image.Image:
     """Reproject an orthographic-marble planet view into an equirectangular
     map (2:1 aspect ratio) suitable for standard sphere UV mapping.
@@ -79,11 +104,14 @@ def spherify(marble: Image.Image) -> Image.Image:
     there. Both hemispheres sample the same 2D point -- so the back of the
     planet is a horizontal mirror of the front. This is the right tradeoff:
     no visible seam, planet is recognizable from any angle.
+
+    Convention: lon=0 (output u=0.5) corresponds to +Z direction in 3D --
+    the camera-facing side -- so the marble's center content lands on the
+    front of the planet when viewed from the default camera position.
     """
     src = np.asarray(marble.convert("RGB"))
     h_src, w_src, _ = src.shape
-    cx, cy = w_src / 2.0, h_src / 2.0
-    R = min(w_src, h_src) * PLANET_RADIUS_FRAC
+    cx, cy, R = detect_planet_bounds(marble)
 
     # Latitude/longitude grid for the equirect output.
     # Pixel (x, y) -> lon in (-pi, pi], lat in [-pi/2, pi/2].
@@ -91,11 +119,12 @@ def spherify(marble: Image.Image) -> Image.Image:
     lat = (0.5 - yy / EQUIRECT_H) * np.pi          # +pi/2 (north) to -pi/2
     lon = (xx / EQUIRECT_W - 0.5) * 2.0 * np.pi    # -pi to +pi
 
-    # 3D unit-sphere position for each output pixel.
+    # 3D unit-sphere position for each output pixel. Convention:
+    # lon=0 -> +Z (camera-facing); +X is to the right.
     cos_lat = np.cos(lat)
     sx = cos_lat * np.sin(lon)
     sy = np.sin(lat)
-    # sz = cos_lat * np.cos(lon)  # not needed -- both hemispheres mirror
+    # sz = cos_lat * np.cos(lon)  # unused -- back hemisphere mirrors front
 
     # Orthographic projection back into the marble's 2D coords.
     ix = (cx + sx * R).astype(np.int32)
