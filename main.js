@@ -10,7 +10,7 @@ import {
   createLavaShader, createSunShader, createAtmosphereShader,
   createShieldShader, createEnergyFlowShader, createNebulaShader,
   createHologramShader, createStarfieldShader,
-  createTexturedBuildingShader,
+  createTexturedBuildingShader, createPlanetShader,
   HeatDistortionShader, VignetteGradeShader,
 } from './shaders.js';
 
@@ -365,36 +365,47 @@ function buildSolarSystem() {
     orbit.rotation.x = -Math.PI / 2;
     solarScene.add(orbit);
 
-    // Planet sphere — saturated, punchy SC2 style. If a baked celestial
-    // texture exists at /assets/textures/celestial/<name>.webp we use it
-    // as the diffuse map; otherwise fall back to the flat color in
-    // PlanetDefs. Texture load is async so the planet pops in once
-    // ready -- the fallback color shows in the meantime.
-    const mat = new THREE.MeshStandardMaterial({
+    // Planet sphere. Default material is a flat-colour fallback used
+    // until the celestial texture loads (and as a permanent fallback
+    // if no texture is on disk -- e.g. the sun is still procedural).
+    let mat = new THREE.MeshStandardMaterial({
       color: p.color,
       emissive: p.emissive,
       emissiveIntensity: p.emissiveIntensity ?? 1.0,
       roughness: 0.6,
       metalness: 0.0,
     });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.radius, 32, 32), mat);
+    mesh.userData = { planet: p };
+    mesh.name = p.name;
+
+    // Async-load the baked celestial texture; on success swap the
+    // material for the triplanar planet shader so the square MJ marble
+    // wraps without UV stretch or pole pinching. Light direction is
+    // recomputed each frame in the planet animation loop so the lit
+    // hemisphere always faces the sun at origin.
     new THREE.TextureLoader().load(
       `/assets/textures/celestial/${p.name.toLowerCase()}.webp`,
       tex => {
         tex.colorSpace = THREE.SRGBColorSpace;
-        mat.map = tex;
-        // Texture has its own color baked in; don't tint or wash it out.
-        mat.color.setHex(0xffffff);
-        mat.emissive.setHex(0x000000);
-        mat.emissiveIntensity = 0;
-        mat.needsUpdate = true;
+        const planetMat = createPlanetShader(tex, p.radius, {
+          // Initial light dir; updated per-frame from sun -> planet.
+          lightDir: new THREE.Vector3(1, 0, 0),
+          ambient: new THREE.Color(0x222244),
+          sunColor: new THREE.Color(0xffeedd),
+          sharpness: 4.0,
+          // Self-glow for hot planets like ignisium so the dark side
+          // isn't pitch black.
+          emissive: new THREE.Color(p.emissive),
+          emissiveIntensity: (p.emissiveIntensity ?? 1.0) * 0.25,
+        });
+        allShaders.push(planetMat);
+        mesh.material = planetMat;
+        mat = planetMat; // for any external reference; harmless otherwise
       },
       undefined,
-      // 404 / missing texture: keep the flat-color fallback. Quietly.
-      () => {},
+      () => { /* missing texture: keep MeshStandardMaterial fallback */ },
     );
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.radius, 32, 32), mat);
-    mesh.userData = { planet: p };
-    mesh.name = p.name;
 
     // Atmosphere — thicker, more visible glow
     const aMat = createAtmosphereShader(new THREE.Color(p.atmosColor), 1.8);
@@ -2062,6 +2073,16 @@ function animateSolarSystem(time) {
       const a = c.userData.orbitAngle, d = c.userData.planet.dist;
       c.position.set(Math.cos(a) * d, 0, Math.sin(a) * d);
       c.rotation.y += 0.003;
+      // For triplanar-shaded planets, point the lit hemisphere at the
+      // sun (origin in solar scene). Light dir is from planet -> sun in
+      // world space, then rotated into the planet's local frame so it
+      // tracks correctly as the planet rotates on its own axis.
+      if (c.material && c.material.uniforms && c.material.uniforms.uLightDir) {
+        const toSunWorld = c.position.clone().multiplyScalar(-1).normalize();
+        const inv = new THREE.Matrix4().copy(c.matrixWorld).invert();
+        const toSunLocal = toSunWorld.transformDirection(inv);
+        c.material.uniforms.uLightDir.value.copy(toSunLocal);
+      }
     }
   });
 }

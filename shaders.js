@@ -477,6 +477,97 @@ export function createAtmosphereShader(color = new THREE.Color(0xff4400), intens
 }
 
 // ============================================================
+// 3b. PLANET (triplanar projection) — wraps a square MJ marble
+//     onto a sphere without UV stretch/pole pinching by sampling
+//     the texture from 3 orthogonal planes and blending by the
+//     surface normal. Used for the solar-system view planets.
+// ============================================================
+export function createPlanetShader(texture, radius = 5.0, opts = {}) {
+  const {
+    lightDir = new THREE.Vector3(1, 0, 0),
+    ambient = new THREE.Color(0x222244),
+    sunColor = new THREE.Color(0xffeedd),
+    sharpness = 4.0,
+    emissive = new THREE.Color(0x000000),
+    emissiveIntensity = 0.0,
+  } = opts;
+
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTexture:           { value: texture },
+      uRadius:            { value: radius },
+      uLightDir:          { value: lightDir.clone().normalize() },
+      uAmbient:           { value: ambient },
+      uSunColor:          { value: sunColor },
+      uSharpness:         { value: sharpness },
+      uEmissive:          { value: emissive },
+      uEmissiveIntensity: { value: emissiveIntensity },
+      uTime:              { value: 0 },
+    },
+    vertexShader: `
+      varying vec3 vLocalPos;     // object-space (texture sticks to planet)
+      varying vec3 vLocalNormal;  // object-space normal for triplanar blend
+      varying vec3 vWorldNormal;  // world-space normal for lighting
+      void main() {
+        vLocalPos = position;
+        vLocalNormal = normal;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uTexture;
+      uniform float uRadius;
+      uniform vec3 uLightDir;
+      uniform vec3 uAmbient;
+      uniform vec3 uSunColor;
+      uniform float uSharpness;
+      uniform vec3 uEmissive;
+      uniform float uEmissiveIntensity;
+      uniform float uTime;
+      varying vec3 vLocalPos;
+      varying vec3 vLocalNormal;
+      varying vec3 vWorldNormal;
+
+      // Sample the texture from one of the three axial planes. Object-space
+      // positions in [-R, R] are remapped to UVs in [0, 1] so the texture
+      // covers the planet's footprint along that axis once.
+      vec3 sampleAxis(vec2 planeCoords) {
+        vec2 uv = planeCoords / (2.0 * uRadius) + 0.5;
+        return texture2D(uTexture, uv).rgb;
+      }
+
+      void main() {
+        // Triplanar blend weights -- absolute components of the local
+        // normal, sharpened so transitions read cleanly. Normalised so
+        // they always sum to 1.0.
+        vec3 blend = pow(abs(vLocalNormal), vec3(uSharpness));
+        blend /= max(dot(blend, vec3(1.0)), 0.0001);
+
+        // Three axial projections (sample texture from YZ, XZ, XY planes).
+        vec3 sampX = sampleAxis(vLocalPos.yz);
+        vec3 sampY = sampleAxis(vLocalPos.xz);
+        vec3 sampZ = sampleAxis(vLocalPos.xy);
+
+        vec3 baseColor = sampX * blend.x + sampY * blend.y + sampZ * blend.z;
+
+        // Lambertian shading + ambient. The atmosphere shader on top of
+        // the planet handles the rim glow, so this stays simple.
+        float NdotL = max(dot(vWorldNormal, normalize(uLightDir)), 0.0);
+        vec3 lit = baseColor * (uAmbient + uSunColor * NdotL);
+
+        // Optional emissive lift (e.g. lava planet self-glow on the dark
+        // side). Modulated by the texture so the glow tracks the surface
+        // detail rather than washing it out.
+        vec3 emit = uEmissive * uEmissiveIntensity * baseColor;
+
+        gl_FragColor = vec4(lit + emit, 1.0);
+      }
+    `,
+  });
+}
+
+// ============================================================
 // 4. SHIELD / FORCE FIELD — Hexagonal grid + impact waves
 // ============================================================
 export function createShieldShader() {
