@@ -993,10 +993,6 @@ const PLANET_SHADER_CONFIGS = {
     baseScale: 2.5,
     octaves: 5,
     roughness: 0.55,
-    // Extracted palette (the MJ image came out as a cool-blue planet
-    // rather than volcanic). Keeping the emissive lift so noise
-    // highlights still glow -- gives an "ice-cracked-with-glow" look
-    // until a more volcanic concept art is regenerated.
     colorStops: [
       { stop: 0.00, color: 0x161928 },
       { stop: 0.20, color: 0x1b2536 },
@@ -1005,8 +1001,18 @@ const PLANET_SHADER_CONFIGS = {
       { stop: 0.80, color: 0xb6c9db },
       { stop: 1.00, color: 0xc7d7e5 },
     ],
+    // Ridged noise overlay -> bright cracks across the surface (lava
+    // rivers if you re-prompt to a more volcanic MJ marble; glowing
+    // electric cracks on the cool-blue palette this image gave us).
+    ridgeStrength: 0.6,
+    ridgeScale: 4.0,
+    ridgeColor: 0xff7030,
     emissive: 0xff5520,
-    emissiveIntensity: 0.30,
+    emissiveIntensity: 0.35,
+    // Soft warm rim glow.
+    fresnelStrength: 0.6,
+    fresnelPower: 2.5,
+    fresnelColor: 0xff7040,
     ambient: [0.25, 0.28, 0.35],
     timeScale: 0.05,
   },
@@ -1022,6 +1028,18 @@ const PLANET_SHADER_CONFIGS = {
       { stop: 0.80, color: 0xe8e7e9 },
       { stop: 1.00, color: 0xf9f9fb },
     ],
+    // Voronoi cell BORDERS -> the actual crystalline lattice look.
+    cellStrength: 0.55,
+    cellScale: 8.0,
+    cellMode: 'borders',
+    cellColor: 0xc8e8ff,
+    // Sharp specular -- ice surfaces reflect.
+    specularStrength: 0.7,
+    specularPower: 48.0,
+    // Cool blue atmosphere rim.
+    fresnelStrength: 0.5,
+    fresnelPower: 3.0,
+    fresnelColor: 0x88c0ff,
     ambient: [0.40, 0.46, 0.55],
   },
   verdania: {
@@ -1039,6 +1057,15 @@ const PLANET_SHADER_CONFIGS = {
     cloudOpacity: 0.40,
     cloudScale: 4.5,
     cloudDrift: 0.04,
+    // Specular only on the lower (water) end of the surface noise --
+    // gives oceans a shine, leaves continents matte.
+    specularStrength: 0.6,
+    specularPower: 64.0,
+    specularThreshold: 0.45,
+    // Soft blue-ish atmosphere.
+    fresnelStrength: 0.55,
+    fresnelPower: 3.5,
+    fresnelColor: 0x80b8ff,
     timeScale: 0.05,
   },
   nethara: {
@@ -1048,6 +1075,9 @@ const PLANET_SHADER_CONFIGS = {
     bandIntensity: 0.85,
     bandFrequency: 4.0,
     bandTurbulence: 0.9,
+    // HEAVY domain warp -- bands get swirled into storm-like turbulence.
+    warpStrength: 0.8,
+    warpScale: 1.2,
     colorStops: [
       { stop: 0.00, color: 0x281939 },
       { stop: 0.20, color: 0x361a38 },
@@ -1056,7 +1086,11 @@ const PLANET_SHADER_CONFIGS = {
       { stop: 0.80, color: 0x274468 },
       { stop: 1.00, color: 0xfbfbfb },
     ],
-    timeScale: 0.03,
+    // Soft purple rim.
+    fresnelStrength: 0.5,
+    fresnelPower: 3.0,
+    fresnelColor: 0xc080d0,
+    timeScale: 0.05,  // slow but visible band drift
   },
   glacius: {
     baseScale: 2.8,
@@ -1068,6 +1102,16 @@ const PLANET_SHADER_CONFIGS = {
       { stop: 0.70, color: 0xa8c8d8 },
       { stop: 0.95, color: 0xf0f8ff },
     ],
+    // Subtle ice cells -- frozen patches.
+    cellStrength: 0.3,
+    cellScale: 6.0,
+    cellMode: 'cells',
+    cellColor: 0xe8f8ff,
+    specularStrength: 0.4,
+    specularPower: 48.0,
+    fresnelStrength: 0.4,
+    fresnelPower: 3.0,
+    fresnelColor: 0xa0d0ff,
     ambient: [0.4, 0.48, 0.55],
   },
   sun: {
@@ -1075,17 +1119,21 @@ const PLANET_SHADER_CONFIGS = {
     octaves: 4,
     roughness: 0.5,
     colorStops: [
-      // Drop the cool-blue bleed from the extracted palette (rows 0-1)
-      // -- those came from background pixels at the marble's limb,
-      // they don't belong on a sun. Keep the warm middle/top.
       { stop: 0.00, color: 0xd38a38 },
       { stop: 0.30, color: 0xd9943a },
       { stop: 0.65, color: 0xe7a747 },
       { stop: 1.00, color: 0xf8c865 },
     ],
+    // Animated domain warp -- roiling plasma motion.
+    warpStrength: 0.5,
+    warpScale: 1.5,
+    // Ridged overlay -- bright plasma flares.
+    ridgeStrength: 0.4,
+    ridgeScale: 6.0,
+    ridgeColor: 0xffffe0,
     unlit: true,
-    timeScale: 0.25,
-    brightness: 1.4,
+    timeScale: 0.5,    // sun churns visibly
+    brightness: 1.5,
   },
 };
 

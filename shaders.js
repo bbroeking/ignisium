@@ -146,6 +146,58 @@ const NOISE_LIB = `
     else c.b = clamp(0.54320679 * log(t/100.0 - 10.0) - 1.19625409, 0.0, 1.0);
     return c;
   }
+
+  // === ADVANCED NOISE TOOLBOX (planet shaders) ============================
+
+  // Quick 3D hash -- pseudo-random vec3 in [0,1] from a vec3 seed.
+  vec3 hash33(vec3 p) {
+    p = vec3(
+      dot(p, vec3(127.1, 311.7, 74.7)),
+      dot(p, vec3(269.5, 183.3, 246.1)),
+      dot(p, vec3(113.5, 271.9, 124.6))
+    );
+    return fract(sin(p) * 43758.5453123);
+  }
+
+  // 3D Voronoi (Worley) noise -- distance to nearest cell point.
+  // Returns vec2(F1, F2) where F1 is nearest, F2 is second-nearest.
+  // Use F2-F1 for cell BORDERS, F1 for cell distance.
+  vec2 voronoi3(vec3 p) {
+    vec3 b = floor(p);
+    vec3 f = fract(p);
+    float F1 = 8.0;
+    float F2 = 8.0;
+    for (int z = -1; z <= 1; z++) {
+      for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+          vec3 g = vec3(float(x), float(y), float(z));
+          vec3 r = g + hash33(b + g) - f;
+          float d = dot(r, r);
+          if (d < F1) { F2 = F1; F1 = d; }
+          else if (d < F2) { F2 = d; }
+        }
+      }
+    }
+    return vec2(sqrt(F1), sqrt(F2));
+  }
+
+  // Ridged noise -- 1 - |snoise| produces sharp ridges where the noise
+  // crosses zero. Ideal for lava cracks, mountain ridges, plasma flows.
+  float ridged3(vec3 p) {
+    return 1.0 - abs(snoise3(p));
+  }
+
+  // Domain warping -- perturb the input coordinates by a vector noise
+  // field before sampling. Turns regular FBM into swirly, organic,
+  // "fluid-like" patterns. Higher strength = more chaotic warp.
+  vec3 warpDomain(vec3 p, float strength, float scale) {
+    vec3 q = vec3(
+      snoise3(p * scale),
+      snoise3((p + vec3(5.2, 1.3, 8.4)) * scale),
+      snoise3((p + vec3(2.8, 7.1, 3.6)) * scale)
+    );
+    return p + q * strength;
+  }
 `;
 
 // ============================================================
@@ -642,6 +694,32 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
     cloudScale = 4.0,
     cloudDrift = 0.05,
     cloudColor = 0xffffff,
+    // Optional domain warping -- swirly organic distortion of the noise
+    // coordinates. Higher = more chaotic, gas-storm-like patterns.
+    warpStrength = 0.0,
+    warpScale = 1.0,
+    // Optional ridged-noise overlay -- adds bright ridges/cracks on top
+    // of the base FBM. Use with high emissive for lava-river effect.
+    ridgeStrength = 0.0,
+    ridgeScale = 3.0,
+    ridgeColor = 0xffffff,
+    // Optional Voronoi (cellular) overlay -- adds crystalline cells
+    // or organic patches. mode='cells' fills cells, 'borders' draws lines.
+    cellStrength = 0.0,
+    cellScale = 4.0,
+    cellMode = 'borders',
+    cellColor = 0xffffff,
+    // Optional Fresnel rim glow -- planet edges glow brighter, gives a
+    // proper "atmosphere" feel without a separate sphere.
+    fresnelStrength = 0.0,
+    fresnelPower = 3.0,
+    fresnelColor = 0x88aaff,
+    // Optional specular highlights -- bright "shine" on water/ice where
+    // light reflects toward the camera. Threshold makes only certain
+    // surface noise values shiny (e.g. only water, not land).
+    specularStrength = 0.0,
+    specularPower = 32.0,
+    specularThreshold = -1.0,  // -1 = always on; 0..1 = only when surfaceVal < threshold
     // Lighting
     lightDir = new THREE.Vector3(1, 0, 0),
     ambient = new THREE.Vector3(0.45, 0.45, 0.55),
@@ -690,6 +768,21 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
       uCloudScale:        { value: cloudScale },
       uCloudDrift:        { value: cloudDrift },
       uCloudColor:        { value: new THREE.Color(cloudColor) },
+      uWarpStrength:      { value: warpStrength },
+      uWarpScale:         { value: warpScale },
+      uRidgeStrength:     { value: ridgeStrength },
+      uRidgeScale:        { value: ridgeScale },
+      uRidgeColor:        { value: new THREE.Color(ridgeColor) },
+      uCellStrength:      { value: cellStrength },
+      uCellScale:         { value: cellScale },
+      uCellBorders:       { value: cellMode === 'borders' ? 1.0 : 0.0 },
+      uCellColor:         { value: new THREE.Color(cellColor) },
+      uFresnelStrength:   { value: fresnelStrength },
+      uFresnelPower:      { value: fresnelPower },
+      uFresnelColor:      { value: new THREE.Color(fresnelColor) },
+      uSpecularStrength:  { value: specularStrength },
+      uSpecularPower:     { value: specularPower },
+      uSpecularThreshold: { value: specularThreshold },
       uLightDir:          { value: lightDir.clone().normalize() },
       uAmbient:           { value: ambient },
       uSunColor:          { value: sunColor },
@@ -702,10 +795,13 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
     vertexShader: `
       varying vec3 vLocalPos;
       varying vec3 vWorldNormal;
+      varying vec3 vViewDir;
       void main() {
         vLocalPos = position;
         vWorldNormal = normalize(mat3(modelMatrix) * normal);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vViewDir = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
       }
     `,
     fragmentShader: `
@@ -727,6 +823,21 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
       uniform float uCloudScale;
       uniform float uCloudDrift;
       uniform vec3 uCloudColor;
+      uniform float uWarpStrength;
+      uniform float uWarpScale;
+      uniform float uRidgeStrength;
+      uniform float uRidgeScale;
+      uniform vec3 uRidgeColor;
+      uniform float uCellStrength;
+      uniform float uCellScale;
+      uniform float uCellBorders;
+      uniform vec3 uCellColor;
+      uniform float uFresnelStrength;
+      uniform float uFresnelPower;
+      uniform vec3 uFresnelColor;
+      uniform float uSpecularStrength;
+      uniform float uSpecularPower;
+      uniform float uSpecularThreshold;
       uniform vec3 uLightDir;
       uniform vec3 uAmbient;
       uniform vec3 uSunColor;
@@ -737,6 +848,7 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
       uniform float uUnlit;
       varying vec3 vLocalPos;
       varying vec3 vWorldNormal;
+      varying vec3 vViewDir;
 
       // Fractal Brownian motion -- layer multiple octaves of 3D simplex
       // noise at doubling frequencies and decaying amplitude. Loop is
@@ -776,6 +888,13 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
         // the planet's actual radius.
         vec3 sp = normalize(vLocalPos);
         vec3 p = sp * uBaseScale;
+
+        // Optional domain warping -- swirly organic distortion of the
+        // sample coordinates. Animates with time so it slowly drifts.
+        if (uWarpStrength > 0.001) {
+          p = warpDomain(p + vec3(t * 0.1, 0.0, 0.0), uWarpStrength, uWarpScale);
+        }
+
         float surfNoise = fbm(p, uRoughness);
         float surfaceVal = surfNoise * 0.5 + 0.5;  // [-1,1] -> [0,1]
 
@@ -792,6 +911,30 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
 
         vec3 baseColor = sampleColorRamp(surfaceVal);
 
+        // Optional ridged-noise overlay -- bright cracks/ridges on top
+        // of the base. Use with high emissive for lava-river effect.
+        if (uRidgeStrength > 0.001) {
+          float ridge = ridged3(sp * uRidgeScale + vec3(t * 0.05, 0.0, 0.0));
+          ridge = pow(max(ridge - 0.6, 0.0) / 0.4, 2.0);
+          baseColor = mix(baseColor, uRidgeColor, ridge * uRidgeStrength);
+        }
+
+        // Optional Voronoi cellular overlay -- crystalline cells (mode=cells)
+        // or cell-border outlines (mode=borders).
+        if (uCellStrength > 0.001) {
+          vec2 v = voronoi3(sp * uCellScale);
+          float cellPattern;
+          if (uCellBorders > 0.5) {
+            // F2 - F1 = distance between nearest and second-nearest cells.
+            // Small at borders -> invert and threshold for sharp lines.
+            cellPattern = 1.0 - smoothstep(0.0, 0.08, v.y - v.x);
+          } else {
+            // F1 distance gives bumps centred on each cell.
+            cellPattern = 1.0 - smoothstep(0.1, 0.5, v.x);
+          }
+          baseColor = mix(baseColor, uCellColor, cellPattern * uCellStrength);
+        }
+
         // Optional cloud overlay -- second noise layer drifting over
         // time. Only the high values become visible cloud.
         if (uCloudOpacity > 0.001) {
@@ -802,13 +945,33 @@ export function createProceduralPlanetShader(radius = 5.0, opts = {}) {
         }
 
         // Lighting. Unlit mode (sun) outputs baseColor*brightness directly.
+        vec3 N = normalize(vWorldNormal);
+        vec3 V = normalize(vViewDir);
+        vec3 L = normalize(uLightDir);
         vec3 lit;
         if (uUnlit > 0.5) {
           lit = baseColor * uBrightness;
         } else {
-          float NdotL = dot(normalize(vWorldNormal), normalize(uLightDir));
+          float NdotL = dot(N, L);
           float diffuse = max(NdotL * (1.0 - uWrap) + uWrap, 0.0);
           lit = baseColor * (uAmbient + uSunColor * diffuse) * uBrightness;
+
+          // Optional specular highlight -- bright reflection toward camera.
+          // Threshold gates by surfaceVal so e.g. only "ocean" pixels shine.
+          if (uSpecularStrength > 0.001) {
+            float gate = (uSpecularThreshold < 0.0) ? 1.0
+                       : step(surfaceVal, uSpecularThreshold);
+            vec3 H = normalize(L + V);
+            float spec = pow(max(dot(N, H), 0.0), uSpecularPower);
+            lit += uSunColor * spec * uSpecularStrength * gate * max(NdotL, 0.0);
+          }
+        }
+
+        // Optional Fresnel rim glow -- planet edges glow brighter for
+        // an "atmosphere" effect baked into the surface shader.
+        if (uFresnelStrength > 0.001) {
+          float fr = pow(1.0 - max(dot(N, V), 0.0), uFresnelPower);
+          lit += uFresnelColor * fr * uFresnelStrength;
         }
 
         // Emissive lift -- modulated by the surface so glow tracks
