@@ -340,18 +340,45 @@ function buildSolarSystem() {
   allShaders.push(nebMat);
   solarScene.add(new THREE.Mesh(new THREE.SphereGeometry(800, 24, 24), nebMat));
 
-  // Sun
+  // Sun. Default to the procedural sunShader; if a baked sun texture
+  // exists at /assets/textures/celestial/sun.webp, swap to the textured
+  // planet shader in unlit mode (the sun lights the system, so it
+  // shouldn't itself be shaded by anything). Equirect mapping keeps
+  // any radial features (granulation, sunspots) wrapping cleanly.
   const sun = new THREE.Mesh(new THREE.SphereGeometry(8, 32, 32), sunShader);
   sun.name = 'sun';
   solarScene.add(sun);
+  new THREE.TextureLoader().load(
+    '/assets/textures/celestial/sun.webp',
+    tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = true;
+      const sunMat = createPlanetShader(tex, 8, {
+        // Unlit: full ambient, no directional, brightness 1.0 -> the
+        // shader emits the texture color verbatim. Wrap is irrelevant.
+        ambient: new THREE.Vector3(1, 1, 1),
+        sunColor: new THREE.Vector3(0, 0, 0),
+        brightness: 1.0,
+        mapping: 'equirect',
+      });
+      allShaders.push(sunMat);
+      sun.material = sunMat;
+    },
+    undefined,
+    () => { /* keep procedural sunShader as fallback */ },
+  );
 
-  // Sun corona layers
-  const c1 = createAtmosphereShader(new THREE.Color(0xffcc44), 1.8);
+  // Sun corona layers -- thinner now that the textured sun has its own
+  // surface detail; the corona is a soft halo, not a glow that dominates.
+  const c1 = createAtmosphereShader(new THREE.Color(0xffcc44), 0.7);
   allShaders.push(c1);
-  solarScene.add(new THREE.Mesh(new THREE.SphereGeometry(12, 32, 32), c1));
-  const c2 = createAtmosphereShader(new THREE.Color(0xff8833), 0.8);
+  solarScene.add(new THREE.Mesh(new THREE.SphereGeometry(9.5, 32, 32), c1));
+  const c2 = createAtmosphereShader(new THREE.Color(0xff8833), 0.35);
   allShaders.push(c2);
-  solarScene.add(new THREE.Mesh(new THREE.SphereGeometry(16, 32, 32), c2));
+  solarScene.add(new THREE.Mesh(new THREE.SphereGeometry(12, 32, 32), c2));
 
   const sunLight = new THREE.PointLight(0xffeedd, 4.0, 1000);
   solarScene.add(sunLight);
