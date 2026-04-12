@@ -398,11 +398,9 @@ function buildSolarSystem() {
         const planetMat = createPlanetShader(tex, p.radius, {
           // Initial light dir; updated per-frame from sun -> planet.
           lightDir: new THREE.Vector3(1, 0, 0),
-          ambient: new THREE.Color(0x222244),
-          sunColor: new THREE.Color(0xffeedd),
-          sharpness: 4.0,
-          // Self-glow for hot planets like ignisium so the dark side
-          // isn't pitch black.
+          // Defaults handle ambient/sun/brightness/wrap; we just add
+          // a self-glow tint so hot planets (ignisium) stay readable
+          // even on the dark side without washing out cool ones.
           emissive: new THREE.Color(p.emissive),
           emissiveIntensity: (p.emissiveIntensity ?? 1.0) * 0.25,
         });

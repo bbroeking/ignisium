@@ -485,9 +485,14 @@ export function createAtmosphereShader(color = new THREE.Color(0xff4400), intens
 export function createPlanetShader(texture, radius = 5.0, opts = {}) {
   const {
     lightDir = new THREE.Vector3(1, 0, 0),
-    ambient = new THREE.Color(0x222244),
-    sunColor = new THREE.Color(0xffeedd),
+    // Defaults chosen so an unlit dark side still reads at ~70% of the
+    // sunlit brightness -- you should always be able to recognize a
+    // planet in an overview shot, lighting is for flavor not gameplay.
+    ambient = new THREE.Vector3(0.45, 0.45, 0.55),
+    sunColor = new THREE.Vector3(0.80, 0.75, 0.70),
+    brightness = 1.2,
     sharpness = 4.0,
+    wrap = 0.5,  // 0 = standard lambert; 0.5 = half-lambert (recommended)
     emissive = new THREE.Color(0x000000),
     emissiveIntensity = 0.0,
   } = opts;
@@ -499,7 +504,9 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
       uLightDir:          { value: lightDir.clone().normalize() },
       uAmbient:           { value: ambient },
       uSunColor:          { value: sunColor },
+      uBrightness:        { value: brightness },
       uSharpness:         { value: sharpness },
+      uWrap:              { value: wrap },
       uEmissive:          { value: emissive },
       uEmissiveIntensity: { value: emissiveIntensity },
       uTime:              { value: 0 },
@@ -521,7 +528,9 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
       uniform vec3 uLightDir;
       uniform vec3 uAmbient;
       uniform vec3 uSunColor;
+      uniform float uBrightness;
       uniform float uSharpness;
+      uniform float uWrap;
       uniform vec3 uEmissive;
       uniform float uEmissiveIntensity;
       uniform float uTime;
@@ -551,10 +560,14 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
 
         vec3 baseColor = sampX * blend.x + sampY * blend.y + sampZ * blend.z;
 
-        // Lambertian shading + ambient. The atmosphere shader on top of
-        // the planet handles the rim glow, so this stays simple.
-        float NdotL = max(dot(vWorldNormal, normalize(uLightDir)), 0.0);
-        vec3 lit = baseColor * (uAmbient + uSunColor * NdotL);
+        // Wrap shading: half-lambert when uWrap=0.5 lifts the dark side
+        // so a planet is always recognisable in an overview view. Set
+        // uWrap=0 for standard lambert (terminator goes to black).
+        float NdotL = dot(vWorldNormal, normalize(uLightDir));
+        float diffuse = max(NdotL * (1.0 - uWrap) + uWrap, 0.0);
+
+        // Ambient floor + directional sun, then a global brightness lift.
+        vec3 lit = baseColor * (uAmbient + uSunColor * diffuse) * uBrightness;
 
         // Optional emissive lift (e.g. lava planet self-glow on the dark
         // side). Modulated by the texture so the glow tracks the surface
