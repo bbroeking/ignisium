@@ -75,20 +75,39 @@ def detect_celestial(filename: str) -> str | None:
 
 
 def crop_to_planet(img: Image.Image) -> Image.Image:
-    """Crop a marble tight to its planet circle, removing the black border.
+    """Crop a marble tight to its planet circle, removing the background.
 
     Without this, equirect-mapping the marble onto a sphere would put the
-    image's black corners at the back and poles -- producing a planet
-    that's only "lit" on the front-facing side.
+    image's background corners at the back and poles -- producing a planet
+    that's "lit" only on the front-facing side and has the background
+    color (white or black) showing on the rest of the sphere.
 
-    Strategy: find all pixels brighter than PLANET_DETECT_THRESHOLD; that's
-    the planet. Crop the bounding box of those pixels, then expand it to
-    a square so the resulting image isn't anamorphic when stretched onto
-    the sphere.
+    Strategy: sample the four corners to detect the background color
+    (could be black, white, or any solid color MJ chose to ignore the
+    prompt). Find pixels whose color differs from that by more than
+    BG_TOLERANCE -- that's the planet. Crop tight to the bbox, then
+    expand to a square.
     """
-    arr = np.asarray(img.convert("L"))
-    mask = arr > PLANET_DETECT_THRESHOLD
-    if mask.sum() < (arr.shape[0] * arr.shape[1] * 0.02):
+    arr_rgb = np.asarray(img.convert("RGB")).astype(np.int16)
+    h, w, _ = arr_rgb.shape
+
+    # Background = average of the 8x8 patches in each corner. Robust to
+    # MJ choosing white, black, navy, or anything else for the corners.
+    corners = np.stack([
+        arr_rgb[0:8, 0:8].reshape(-1, 3),
+        arr_rgb[0:8, w-8:w].reshape(-1, 3),
+        arr_rgb[h-8:h, 0:8].reshape(-1, 3),
+        arr_rgb[h-8:h, w-8:w].reshape(-1, 3),
+    ])
+    bg = corners.mean(axis=(0, 1))  # mean RGB across all corner samples
+
+    # Distance of each pixel from the background colour. Anything > 30
+    # away is "planet content". 30 is a Manhattan/L1 threshold tuned for
+    # MJ's anti-aliasing fade -- planet limb gradients still register.
+    BG_TOLERANCE = 30
+    diff = np.abs(arr_rgb - bg).sum(axis=2)
+    mask = diff > BG_TOLERANCE
+    if mask.sum() < (h * w * 0.02):
         # Couldn't find a planet -- bail and use the full image.
         return img
     ys, xs = np.where(mask)
@@ -109,11 +128,38 @@ def crop_to_planet(img: Image.Image) -> Image.Image:
     return img.crop((sq_left, sq_top, sq_right, sq_bottom))
 
 
+def fill_background(img: Image.Image) -> Image.Image:
+    """Replace all background-coloured pixels with the planet's average
+    colour, so when this image is sphere-mapped no white/black background
+    bleeds onto the planet.
+    """
+    arr = np.asarray(img.convert("RGB")).astype(np.int16)
+    h, w, _ = arr.shape
+    corners = np.stack([
+        arr[0:8, 0:8].reshape(-1, 3),
+        arr[0:8, w-8:w].reshape(-1, 3),
+        arr[h-8:h, 0:8].reshape(-1, 3),
+        arr[h-8:h, w-8:w].reshape(-1, 3),
+    ])
+    bg = corners.mean(axis=(0, 1))
+    BG_TOLERANCE = 30
+    diff = np.abs(arr - bg).sum(axis=2)
+    bg_mask = diff <= BG_TOLERANCE
+    planet_mask = ~bg_mask
+    if planet_mask.sum() < 100:
+        return img
+    planet_avg = arr[planet_mask].mean(axis=0).astype(np.uint8)
+    out = arr.astype(np.uint8).copy()
+    out[bg_mask] = planet_avg
+    return Image.fromarray(out)
+
+
 def process(png_path: Path, out_path: Path) -> tuple[int, int]:
-    """Crop tight to the planet circle, resize, save as WebP."""
+    """Crop tight to the planet, fill background, resize, save as WebP."""
     src_bytes = png_path.stat().st_size
     img = Image.open(png_path).convert("RGB")
     img = crop_to_planet(img)
+    img = fill_background(img)
     if img.size != (TARGET_SIZE, TARGET_SIZE):
         img = img.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
     out_path.parent.mkdir(parents=True, exist_ok=True)
