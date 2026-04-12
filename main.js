@@ -365,14 +365,33 @@ function buildSolarSystem() {
     orbit.rotation.x = -Math.PI / 2;
     solarScene.add(orbit);
 
-    // Planet sphere — saturated, punchy SC2 style
+    // Planet sphere — saturated, punchy SC2 style. If a baked celestial
+    // texture exists at /assets/textures/celestial/<name>.webp we use it
+    // as the diffuse map; otherwise fall back to the flat color in
+    // PlanetDefs. Texture load is async so the planet pops in once
+    // ready -- the fallback color shows in the meantime.
     const mat = new THREE.MeshStandardMaterial({
       color: p.color,
       emissive: p.emissive,
       emissiveIntensity: p.emissiveIntensity ?? 1.0,
-      roughness: 0.25,
-      metalness: 0.15,
+      roughness: 0.6,
+      metalness: 0.0,
     });
+    new THREE.TextureLoader().load(
+      `/assets/textures/celestial/${p.name.toLowerCase()}.webp`,
+      tex => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        mat.map = tex;
+        // Texture has its own color baked in; don't tint or wash it out.
+        mat.color.setHex(0xffffff);
+        mat.emissive.setHex(0x000000);
+        mat.emissiveIntensity = 0;
+        mat.needsUpdate = true;
+      },
+      undefined,
+      // 404 / missing texture: keep the flat-color fallback. Quietly.
+      () => {},
+    );
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(p.radius, 32, 32), mat);
     mesh.userData = { planet: p };
     mesh.name = p.name;
