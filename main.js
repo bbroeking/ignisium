@@ -79,7 +79,7 @@ const PlanetDefs = [
   { name: 'Ignisium', type: 'Volcanic', color: 0xff5511, emissive: 0xff3300, emissiveIntensity: 1.5, atmosColor: 0xff4400, radius: 5, dist: 40, speed: 0.3, colonized: true, resources: { energy: 'Very High', minerals: 'High', rare: 'Low' }, threat: 'Medium', temperature: '1,200°C', gravity: '0.8g', desc: 'A volatile volcanic world rich in thermal energy. Lava rivers carve through basalt plains.' },
   { name: 'Crystara', type: 'Crystal Ice', color: 0x5599ff, emissive: 0x3366cc, emissiveIntensity: 1.2, atmosColor: 0x66aaff, radius: 4, dist: 65, speed: 0.2, colonized: false, resources: { energy: 'Low', minerals: 'Very High', rare: 'High' }, threat: 'Low', temperature: '-180°C', gravity: '0.6g', desc: 'Frozen world with vast crystal formations. Rich in rare minerals beneath the ice.' },
   { name: 'Verdania', type: 'Temperate', color: 0x55cc55, emissive: 0x338833, emissiveIntensity: 1.0, atmosColor: 0x77ee77, radius: 6, dist: 95, speed: 0.12, colonized: false, resources: { energy: 'Medium', minerals: 'Medium', rare: 'Medium' }, threat: 'Low', temperature: '22°C', gravity: '1.0g', desc: 'Earth-like world with breathable atmosphere. Balanced resources, ideal for expansion.' },
-  { name: 'Nethara', type: 'Gas Giant', color: 0xcc8844, emissive: 0x775522, emissiveIntensity: 0.8, atmosColor: 0xddaa55, radius: 10, dist: 140, speed: 0.06, colonized: false, resources: { energy: 'High', minerals: 'None', rare: 'Very High' }, threat: 'High', temperature: '-110°C', gravity: '2.5g', desc: 'Massive gas giant. Orbital stations can harvest rare gases from the upper atmosphere.' },
+  { name: 'Nethara', type: 'Gas Giant', color: 0xcc8844, emissive: 0x775522, emissiveIntensity: 0.8, atmosColor: 0xddaa55, radius: 10, dist: 140, speed: 0.06, colonized: false, resources: { energy: 'High', minerals: 'None', rare: 'Very High' }, threat: 'High', temperature: '-110°C', gravity: '2.5g', desc: 'Massive gas giant. Orbital stations can harvest rare gases from the upper atmosphere.', mapping: 'equirect' },
   { name: 'Glacius', type: 'Frozen', color: 0xbbddff, emissive: 0x7799bb, emissiveIntensity: 0.6, atmosColor: 0xccddff, radius: 3.5, dist: 185, speed: 0.03, colonized: false, resources: { energy: 'Low', minerals: 'Medium', rare: 'Low' }, threat: 'Medium', temperature: '-220°C', gravity: '0.4g', desc: 'Distant frozen world. Subsurface oceans may hold ancient deposits.' },
 ];
 
@@ -403,6 +403,10 @@ function buildSolarSystem() {
           // even on the dark side without washing out cool ones.
           emissive: new THREE.Color(p.emissive),
           emissiveIntensity: (p.emissiveIntensity ?? 1.0) * 0.25,
+          // Per-planet sphere mapping mode (PlanetDefs decides which
+          // looks right). Triplanar is great for noisy textures, breaks
+          // visibly on horizontal-band gas giants -- those use 'equirect'.
+          mapping: p.mapping ?? 'triplanar',
         });
         allShaders.push(planetMat);
         mesh.material = planetMat;
@@ -412,10 +416,11 @@ function buildSolarSystem() {
       () => { /* missing texture: keep MeshStandardMaterial fallback */ },
     );
 
-    // Atmosphere — thicker, more visible glow
-    const aMat = createAtmosphereShader(new THREE.Color(p.atmosColor), 1.8);
+    // Atmosphere -- thinner, less obscuring glow shell so the planet's
+    // surface details stay readable. Was intensity 1.8 / radius x1.2.
+    const aMat = createAtmosphereShader(new THREE.Color(p.atmosColor), 0.7);
     allShaders.push(aMat);
-    mesh.add(new THREE.Mesh(new THREE.SphereGeometry(p.radius * 1.2, 24, 24), aMat));
+    mesh.add(new THREE.Mesh(new THREE.SphereGeometry(p.radius * 1.08, 24, 24), aMat));
 
     // Colony shield
     if (p.colonized) {

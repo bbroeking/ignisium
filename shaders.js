@@ -495,7 +495,39 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
     wrap = 0.5,  // 0 = standard lambert; 0.5 = half-lambert (recommended)
     emissive = new THREE.Color(0x000000),
     emissiveIntensity = 0.0,
+    // 'triplanar' (default) blends 3 axial samples -- ideal for noisy
+    //   surfaces where sticker repetition is invisible.
+    // 'equirect' wraps the texture once around the sphere using standard
+    //   spherical UV mapping -- right for textures with strong directional
+    //   structure (gas-giant bands, swirling clouds) where triplanar's
+    //   3-copy effect is jarring. Has one back-seam + pole pinching as
+    //   inherent costs.
+    mapping = 'triplanar',
   } = opts;
+
+  // The texture-sampling step is the only thing that differs between
+  // mapping modes; the lighting math is shared.
+  const samplerCode = mapping === 'equirect' ? `
+      vec3 sampleSurface() {
+        vec3 n = normalize(vLocalNormal);
+        float u = atan(n.z, n.x) / (2.0 * 3.14159265) + 0.5;
+        float v = asin(clamp(n.y, -1.0, 1.0)) / 3.14159265 + 0.5;
+        return texture2D(uTexture, vec2(u, v)).rgb;
+      }
+  ` : `
+      vec3 sampleAxis(vec2 planeCoords) {
+        vec2 uv = planeCoords / (2.0 * uRadius) + 0.5;
+        return texture2D(uTexture, uv).rgb;
+      }
+      vec3 sampleSurface() {
+        vec3 blend = pow(abs(vLocalNormal), vec3(uSharpness));
+        blend /= max(dot(blend, vec3(1.0)), 0.0001);
+        vec3 sampX = sampleAxis(vLocalPos.yz);
+        vec3 sampY = sampleAxis(vLocalPos.xz);
+        vec3 sampZ = sampleAxis(vLocalPos.xy);
+        return sampX * blend.x + sampY * blend.y + sampZ * blend.z;
+      }
+  `;
 
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -538,27 +570,12 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
       varying vec3 vLocalNormal;
       varying vec3 vWorldNormal;
 
-      // Sample the texture from one of the three axial planes. Object-space
-      // positions in [-R, R] are remapped to UVs in [0, 1] so the texture
-      // covers the planet's footprint along that axis once.
-      vec3 sampleAxis(vec2 planeCoords) {
-        vec2 uv = planeCoords / (2.0 * uRadius) + 0.5;
-        return texture2D(uTexture, uv).rgb;
-      }
+      // Surface sampler -- definition injected at material-creation time
+      // depending on `mapping` ('triplanar' or 'equirect').
+      ${samplerCode}
 
       void main() {
-        // Triplanar blend weights -- absolute components of the local
-        // normal, sharpened so transitions read cleanly. Normalised so
-        // they always sum to 1.0.
-        vec3 blend = pow(abs(vLocalNormal), vec3(uSharpness));
-        blend /= max(dot(blend, vec3(1.0)), 0.0001);
-
-        // Three axial projections (sample texture from YZ, XZ, XY planes).
-        vec3 sampX = sampleAxis(vLocalPos.yz);
-        vec3 sampY = sampleAxis(vLocalPos.xz);
-        vec3 sampZ = sampleAxis(vLocalPos.xy);
-
-        vec3 baseColor = sampX * blend.x + sampY * blend.y + sampZ * blend.z;
+        vec3 baseColor = sampleSurface();
 
         // Wrap shading: half-lambert when uWrap=0.5 lifts the dark side
         // so a planet is always recognisable in an overview view. Set
