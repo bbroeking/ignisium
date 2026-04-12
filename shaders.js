@@ -571,7 +571,7 @@ export function createPlanetShader(texture, radius = 5.0, opts = {}) {
       varying vec3 vWorldNormal;
 
       // Surface sampler -- definition injected at material-creation time
-      // depending on `mapping` ('triplanar' or 'equirect').
+      // depending on the mapping option (triplanar or equirect).
       ${samplerCode}
 
       void main() {
