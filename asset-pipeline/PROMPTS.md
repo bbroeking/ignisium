@@ -13,9 +13,11 @@ pure magenta (1, 0, 1) in the baked PBR texture and substitutes the player team 
 Decorative non-team colors (red warning, yellow hazard, amber accent) stay as-is --
 they are outside the magenta hot range and will not be re-tinted.
 
-**Note:** the original 11 GLBs in `asset-pipeline/output/` were generated with the
-previous *cyan* team-color convention. They will not respond to player tinting until
-regenerated against the new prompts below.
+**Note on existing assets:** the GLBs already in `asset-pipeline/output/` were
+generated with the previous *cyan* convention. They keep working in-game with
+no errors -- the magenta-mask shader doesn't fire on cyan, so those buildings
+render with permanent cyan trim regardless of player. Regenerate them only if
+you want them to participate in per-player team tinting.
 
 All prompts follow these rules:
 - isometric 3/4 view, centered isolated 3D game asset

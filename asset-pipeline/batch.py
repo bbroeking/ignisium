@@ -46,11 +46,21 @@ STRIP_WORDS = {
     "volcanic", "planet", "colony", "stylized", "qurtyyy", "pressurized",
     "reinforced", "fortified", "futuristic", "structure", "facility",
 }
-# Known building types to match against
+# Known asset types to match against. Order matters: longer / more
+# specific names should come first so e.g. "colony_ship" matches before
+# a stray "colony" elsewhere in the filename does.
 KNOWN_BUILDINGS = [
+    # Original 11
     "command_center", "thermal_extractor", "mineral_drill", "habitat_pod",
     "habitat_dome", "research_lab", "warehouse", "barracks", "defense_turret",
     "shipyard", "trade_depot", "shield_gen", "hangar",
+    # New buildings
+    "power_plant", "refinery", "sensor_tower", "repair_bay",
+]
+KNOWN_UNITS = [
+    # Order: 2-word names first
+    "colony_ship", "heavy_trooper", "engineer_drone", "scout_drone",
+    "fighter", "transport", "marine",
 ]
 
 
@@ -78,8 +88,10 @@ def simplify_name(filename: str) -> str:
 
     candidate = "_".join(words)
 
-    # Try to match a known building type
-    for known in KNOWN_BUILDINGS:
+    # Try to match a known asset type. Units checked first because their
+    # names are more specific (e.g. "colony_ship" should win over a stray
+    # "ship" matching shipyard).
+    for known in KNOWN_UNITS + KNOWN_BUILDINGS:
         if known in candidate or all(part in candidate for part in known.split("_")):
             return known
 
