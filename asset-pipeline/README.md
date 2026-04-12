@@ -11,17 +11,23 @@ cd asset-pipeline
 run.bat
 :: -> opens http://127.0.0.1:7860
 
-:: Batch process a folder of images
-runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py
+:: Batch process all images in inbox/ (default)
+batch.bat
+
+:: Batch process a custom input folder
+batch.bat input/
 
 :: Shape only, no textures (fastest)
-runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py --no-texture
+batch.bat --no-texture
 
 :: High quality (octree 384, 50 steps)
-runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py --preset high
+batch.bat --preset high
 
 :: Dry run (show plan without generating)
-runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py --dry-run
+batch.bat --dry-run
+
+:: Combine options
+batch.bat input/ --preset high --no-texture --dry-run
 ```
 
 ## Setup
@@ -98,24 +104,24 @@ Three tabs at http://127.0.0.1:7860:
 | **Prompt Queue** | Subject text -> MJ prompt -> Discord -> download -> 3D -> auto-install GLB |
 | **Animations** | GLB node inspector, procedural animation reference, UniRig setup |
 
-### Batch CLI (`batch.py`)
+### Batch CLI (`batch.bat`)
 
 Process a folder of images in one command:
 
 ```cmd
-runtime\Hunyuan3D2_WinPortable\python_standalone\python.exe batch.py [input_folder] [options]
+batch.bat [input_folder] [options]
 ```
 
 | Option | Default | Description |
 |---|---|---|
-| `input_folder` | `inbox/` | Folder of PNG/JPG images |
+| `input_folder` | `inbox/` | Folder of PNG/JPG images (e.g. `inbox/` or `input/`) |
 | `--preset` | `balanced` | `fast` / `balanced` / `high` |
 | `--no-texture` | off | Shape only (~10s), skip PBR textures |
 | `--dry-run` | off | Show plan without generating |
 
 **Workflow:**
-1. Drop Midjourney PNGs into `inbox/`
-2. Run `batch.py`
+1. Drop Midjourney PNGs into `inbox/` (or any folder)
+2. Run `batch.bat` (or `batch.bat input/` for a custom folder)
 3. GLBs appear in `output/`, source images move to `generated/` with simplified names
 
 **Filename simplification:**
