@@ -31,8 +31,8 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 INPUT_DIR = SCRIPT_DIR / "input"
 TEXTURES_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "textures" / "celestial").resolve()
 
-TARGET_SIZE = 1024  # px, square
-WEBP_QUALITY = 85
+TARGET_SIZE = 1024  # px, square (MJ's native output for these prompts)
+WEBP_QUALITY = 95   # near-lossless; preserves planet detail
 
 # Keyword -> celestial key. First match wins; multi-word keywords with
 # spaces will be checked against the lowercased filename with "_" -> " ".

@@ -388,6 +388,13 @@ function buildSolarSystem() {
       `/assets/textures/celestial/${p.name.toLowerCase()}.webp`,
       tex => {
         tex.colorSpace = THREE.SRGBColorSpace;
+        // Crank anisotropic filtering -- biggest free sharpness win at
+        // oblique viewing angles. Hits the GPU's max (typically 16x).
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = true;
+        tex.needsUpdate = true;
         const planetMat = createPlanetShader(tex, p.radius, {
           // Initial light dir; updated per-frame from sun -> planet.
           lightDir: new THREE.Vector3(1, 0, 0),
