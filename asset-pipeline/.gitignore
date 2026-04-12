@@ -4,9 +4,15 @@ runtime/
 output/*.glb
 output/*.obj
 output/*.png
+output/*.json
+output/*.csv
 __pycache__/
 *.pyc
 .venv/
+
+# Generated assets (output of batch.py / postprocess.py)
+generated/
+processed/
 
 # Pipeline queue runtime state + secrets
 .env

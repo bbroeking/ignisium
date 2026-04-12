@@ -33,6 +33,7 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Asset pipeline build artifacts (handled by its own .gitignore too)
 asset-pipeline/venv/
