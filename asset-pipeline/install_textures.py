@@ -32,17 +32,12 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 INPUT_DIR = SCRIPT_DIR / "input"
 TEXTURES_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "textures" / "celestial").resolve()
 
-# Output is equirectangular (2:1 aspect) so it wraps onto a sphere correctly
-# with standard sphere UV mapping. MJ outputs orthographic marbles -- we
-# re-project them into equirect here. The "back hemisphere" of the planet
-# becomes a mirror of the front (a tradeoff for getting a seamless wrap).
-EQUIRECT_W = 2048
-EQUIRECT_H = 1024
+# Plain pass-through: just resize MJ marbles to TARGET_SIZE square and
+# WebP-compress. The shader (createPlanetShader in shaders.js) handles
+# the sphere mapping with whichever mode (triplanar / equirect) is
+# configured per planet in PlanetDefs.
+TARGET_SIZE = 1024
 WEBP_QUALITY = 95
-# How much of the source image is occupied by the planet orb (the rest
-# is the black background MJ renders around it). MJ marbles per these
-# prompts have orb_radius ~ 0.40 * image_width.
-PLANET_RADIUS_FRAC = 0.45
 
 # Keyword -> celestial key. First match wins; multi-word keywords with
 # spaces will be checked against the lowercased filename with "_" -> " ".
@@ -69,87 +64,18 @@ def detect_celestial(filename: str) -> str | None:
     return None
 
 
-def detect_planet_bounds(marble: Image.Image) -> tuple[float, float, float]:
-    """Find the (cx, cy, R) of the planet's circular silhouette in a marble
-    image with a black background. Falls back to centered defaults if it
-    can't find a clear orb.
-    """
-    arr = np.asarray(marble.convert("L"))     # grayscale
-    h, w = arr.shape
-    # "Planet" = pixels brighter than near-black. Threshold conservative
-    # enough that subtle limb gradients still count.
-    mask = arr > 25
-    if mask.sum() < (w * h * 0.02):
-        # Couldn't find anything bright. Fall back to centered default.
-        return w / 2.0, h / 2.0, min(w, h) * PLANET_RADIUS_FRAC
-    ys, xs = np.where(mask)
-    cx = (xs.min() + xs.max()) / 2.0
-    cy = (ys.min() + ys.max()) / 2.0
-    # Use the larger half-extent (the orb might extend slightly beyond
-    # the bounding box symmetry; pick the bigger axis to avoid clipping).
-    R = max(xs.max() - cx, ys.max() - cy, cx - xs.min(), cy - ys.min())
-    # Nudge R down a touch so we don't accidentally sample the black
-    # beyond the limb where MJ's anti-aliasing fades to dark.
-    R *= 0.97
-    return float(cx), float(cy), float(R)
-
-
-def spherify(marble: Image.Image) -> Image.Image:
-    """Reproject an orthographic-marble planet view into an equirectangular
-    map (2:1 aspect ratio) suitable for standard sphere UV mapping.
-
-    The marble is treated as an orthographic view of a unit sphere. For
-    each output pixel (lat, lon) we compute the corresponding 3D point on
-    the sphere, project it back to 2D image coords, and sample the marble
-    there. Both hemispheres sample the same 2D point -- so the back of the
-    planet is a horizontal mirror of the front. This is the right tradeoff:
-    no visible seam, planet is recognizable from any angle.
-
-    Convention: lon=0 (output u=0.5) corresponds to +Z direction in 3D --
-    the camera-facing side -- so the marble's center content lands on the
-    front of the planet when viewed from the default camera position.
-    """
-    src = np.asarray(marble.convert("RGB"))
-    h_src, w_src, _ = src.shape
-    cx, cy, R = detect_planet_bounds(marble)
-
-    # Latitude/longitude grid for the equirect output.
-    # Pixel (x, y) -> lon in (-pi, pi], lat in [-pi/2, pi/2].
-    yy, xx = np.mgrid[0:EQUIRECT_H, 0:EQUIRECT_W]
-    lat = (0.5 - yy / EQUIRECT_H) * np.pi          # +pi/2 (north) to -pi/2
-    lon = (xx / EQUIRECT_W - 0.5) * 2.0 * np.pi    # -pi to +pi
-
-    # 3D unit-sphere position for each output pixel. Convention:
-    # lon=0 -> +Z (camera-facing); +X is to the right.
-    cos_lat = np.cos(lat)
-    sx = cos_lat * np.sin(lon)
-    sy = np.sin(lat)
-    # sz = cos_lat * np.cos(lon)  # unused -- back hemisphere mirrors front
-
-    # Orthographic projection back into the marble's 2D coords.
-    ix = (cx + sx * R).astype(np.int32)
-    iy = (cy - sy * R).astype(np.int32)
-    np.clip(ix, 0, w_src - 1, out=ix)
-    np.clip(iy, 0, h_src - 1, out=iy)
-
-    out = src[iy, ix]
-    return Image.fromarray(out)
-
-
 def process(png_path: Path, out_path: Path) -> tuple[int, int]:
-    """Spherify the marble and save as WebP. Returns (src_bytes, out_bytes)."""
+    """Resize and save as WebP. Returns (src_bytes, out_bytes)."""
     src_bytes = png_path.stat().st_size
     img = Image.open(png_path).convert("RGB")
-    # Center-crop to square if the source isn't already square (MJ outputs
-    # are square so this is a no-op, but defensive).
     w, h = img.size
     if w != h:
         m = min(w, h)
         img = img.crop(((w - m) // 2, (h - m) // 2, (w + m) // 2, (h + m) // 2))
-    # Reproject orthographic marble -> equirectangular (2:1).
-    eq = spherify(img)
+    if img.size != (TARGET_SIZE, TARGET_SIZE):
+        img = img.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    eq.save(out_path, "WEBP", quality=WEBP_QUALITY, method=6)
+    img.save(out_path, "WEBP", quality=WEBP_QUALITY, method=6)
     out_bytes = out_path.stat().st_size
     return src_bytes, out_bytes
 
@@ -166,8 +92,7 @@ def main():
 
     print(f"Scanning {len(pngs)} images in {INPUT_DIR}")
     print(f"Target:   {TEXTURES_DIR}")
-    print(f"Format:   {EQUIRECT_W}x{EQUIRECT_H} equirectangular WebP "
-          f"(quality {WEBP_QUALITY})")
+    print(f"Format:   {TARGET_SIZE}x{TARGET_SIZE} WebP (quality {WEBP_QUALITY})")
     print()
 
     matched = []
