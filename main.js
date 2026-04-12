@@ -11,7 +11,7 @@ import {
   createShieldShader, createEnergyFlowShader, createNebulaShader,
   createHologramShader, createStarfieldShader,
   createTexturedBuildingShader, createPlanetShader,
-  createProceduralPlanetShader,
+  createProceduralPlanetShader, createConstructionShader,
   HeatDistortionShader, VignetteGradeShader,
 } from './shaders.js';
 
@@ -42,10 +42,10 @@ function safe(fn, ctx) { try { return fn(); } catch (e) { console.error(`[${ctx}
 
 // --- Tech Tree ---
 const TechTree = {
-  basic_construction: { name: 'Basic Construction', cost: { energy: 30 }, time: 5, unlocks: ['thermal_extractor', 'mineral_drill', 'habitat_pod'], requires: [], desc: 'Unlock basic colony structures' },
-  advanced_extraction: { name: 'Advanced Extraction', cost: { energy: 80, minerals: 40 }, time: 15, unlocks: [], requires: ['basic_construction'], desc: 'Extractors produce 50% more', effect: 'extractionBonus' },
-  military_science: { name: 'Military Science', cost: { energy: 100, minerals: 60 }, time: 20, unlocks: ['barracks', 'defense_turret'], requires: ['basic_construction'], desc: 'Unlock military buildings' },
-  shipyard_tech: { name: 'Shipyard Engineering', cost: { energy: 150, minerals: 100 }, time: 30, unlocks: ['shipyard'], requires: ['military_science'], desc: 'Unlock the Shipyard for fleet construction' },
+  basic_construction: { name: 'Basic Construction', cost: { energy: 30 }, time: 5, unlocks: ['thermal_extractor', 'mineral_drill', 'habitat_pod', 'power_plant'], requires: [], desc: 'Unlock basic colony structures' },
+  advanced_extraction: { name: 'Advanced Extraction', cost: { energy: 80, minerals: 40 }, time: 15, unlocks: ['refinery'], requires: ['basic_construction'], desc: 'Extractors produce 50% more; unlocks Refinery', effect: 'extractionBonus' },
+  military_science: { name: 'Military Science', cost: { energy: 100, minerals: 60 }, time: 20, unlocks: ['barracks', 'defense_turret', 'sensor_tower'], requires: ['basic_construction'], desc: 'Unlock military buildings' },
+  shipyard_tech: { name: 'Shipyard Engineering', cost: { energy: 150, minerals: 100 }, time: 30, unlocks: ['shipyard', 'repair_bay'], requires: ['military_science'], desc: 'Unlock the Shipyard for fleet construction' },
   colonization: { name: 'Colonization', cost: { energy: 200, minerals: 150 }, time: 40, unlocks: [], requires: ['shipyard_tech'], desc: 'Unlocks colony ship construction at the Shipyard' },
   trade_networks: { name: 'Trade Networks', cost: { energy: 120, minerals: 80 }, time: 25, unlocks: ['trade_depot'], requires: ['basic_construction'], desc: 'Establish inter-colony trade routes' },
   shield_tech: { name: 'Shield Technology', cost: { energy: 180, minerals: 120 }, time: 35, unlocks: ['shield_gen'], requires: ['military_science'], desc: 'Unlock planetary shield generators' },
@@ -66,6 +66,10 @@ const BuildingDefs = {
   shipyard: { name: 'Shipyard', icon: '🚀', desc: 'Constructs ships and colony vessels.', cost: { energy: 100, minerals: 80 }, production: {}, maxPopBonus: 0, maxLevel: 3, unique: true, category: 'military' },
   trade_depot: { name: 'Trade Depot', icon: '🔄', desc: 'Enables trade routes between planets.', cost: { energy: 60, minerals: 50 }, production: { energy: 1, minerals: 1 }, maxPopBonus: 0, maxLevel: 3, unique: true, category: 'civilian' },
   shield_gen: { name: 'Shield Generator', icon: '🛡️', desc: 'Projects a protective shield.', cost: { energy: 120, minerals: 100 }, production: {}, maxPopBonus: 0, maxLevel: 3, unique: true, category: 'military', effect: 'shield' },
+  power_plant:  { name: 'Power Plant',  icon: '⚡', desc: 'Fusion reactor. Steady high energy output.',         cost: { energy: 50, minerals: 60 },  production: { energy: 4 },             maxPopBonus: 0, maxLevel: 5, category: 'resource' },
+  refinery:     { name: 'Refinery',     icon: '🏭', desc: 'Smelts raw minerals; doubles drill output nearby.', cost: { energy: 80, minerals: 60 },  production: { minerals: 2 },           maxPopBonus: 0, maxLevel: 5, category: 'resource' },
+  sensor_tower: { name: 'Sensor Tower', icon: '📡', desc: 'Long-range scan. Reveals raids earlier.',           cost: { energy: 40, minerals: 25 },  production: {},                        maxPopBonus: 0, maxLevel: 3, category: 'military', effect: 'sensor' },
+  repair_bay:   { name: 'Repair Bay',   icon: '🔧', desc: 'Repairs orbital ships between sorties.',            cost: { energy: 60, minerals: 70 },  production: {},                        maxPopBonus: 0, maxLevel: 3, category: 'military', effect: 'repair' },
 };
 
 // --- Ship Definitions ---
@@ -942,6 +946,89 @@ function createShieldGen() {
   return g;
 }
 
+function createPowerPlant() {
+  const g = new THREE.Group();
+  const mBase = metalMat(0x3a3a48);
+  const mGlow = new THREE.MeshStandardMaterial({ color: 0xffaa44, emissive: 0xff8822, emissiveIntensity: 0.8 });
+  // Reactor body
+  g.add(meshAt(new THREE.BoxGeometry(4.5, 3, 4.5), mBase, 0, 1.5, 0));
+  // 4 cooling vents on top
+  [-1, 1].forEach(sx => {
+    [-1, 1].forEach(sz => {
+      const v = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.5, 8), mBase);
+      v.position.set(sx * 1.4, 3.75, sz * 1.4);
+      g.add(v);
+    });
+  });
+  // Glowing core
+  const core = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 16), mGlow);
+  core.position.y = 3.4; core.name = 'energy-core'; g.add(core);
+  return g;
+}
+
+function createRefinery() {
+  const g = new THREE.Group();
+  const m = metalMat(0x4a3a30);
+  // Base
+  g.add(meshAt(new THREE.BoxGeometry(5, 1.2, 5), m, 0, 0.6, 0));
+  // Two tall processing tanks
+  [-1, 1].forEach(sx => {
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 4, 12), m);
+    tank.position.set(sx * 1.3, 3.2, 0);
+    g.add(tank);
+    // Cap
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 8, 0, Math.PI*2, 0, Math.PI/2), m);
+    cap.position.set(sx * 1.3, 5.2, 0);
+    g.add(cap);
+  });
+  // Central exhaust stack
+  g.add(meshAt(new THREE.CylinderGeometry(0.4, 0.5, 5, 8), m, 0, 3.5, 1.5));
+  return g;
+}
+
+function createSensorTower() {
+  const g = new THREE.Group();
+  const m = metalMat(0x3a4555);
+  // Square base
+  g.add(meshAt(new THREE.BoxGeometry(2.5, 1, 2.5), m, 0, 0.5, 0));
+  // Tall lattice mast
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 5, 6), m);
+  mast.position.y = 3.5; g.add(mast);
+  // Rotating dish
+  const dishMat = metalMat(0x55667a);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 8, 0, Math.PI*2, 0, Math.PI/2), dishMat);
+  dish.position.y = 6.2; dish.rotation.x = -0.2;
+  dish.name = 'trade-pad';  // reuses the slow-rotate animation hook
+  g.add(dish);
+  // Antenna spike
+  g.add(meshAt(new THREE.ConeGeometry(0.15, 1.2, 6), m, 0, 7.2, 0));
+  return g;
+}
+
+function createRepairBay() {
+  const g = new THREE.Group();
+  const m = metalMat(0x4a4a3a);
+  const yellow = new THREE.MeshStandardMaterial({ color: 0xddc24a, roughness: 0.6 });
+  // Wide low pad
+  g.add(meshAt(new THREE.BoxGeometry(5.5, 0.4, 5.5), m, 0, 0.2, 0));
+  // Central docking circle (raised)
+  g.add(meshAt(new THREE.CylinderGeometry(1.6, 1.6, 0.3, 16), yellow, 0, 0.55, 0));
+  // Two side service arms
+  [-1, 1].forEach(sx => {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.6, 3, 0.6), m);
+    arm.position.set(sx * 2.2, 1.7, 0);
+    g.add(arm);
+    // Tool head at the top of each arm
+    const head = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.8), m);
+    head.position.set(sx * 1.8, 3.0, 0);
+    g.add(head);
+  });
+  // Overhead gantry beam between the arms
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.4, 0.5), m);
+  beam.position.y = 3.4; g.add(beam);
+  return g;
+}
+
 const buildingGenerators = {
   command_center: createCommandCenter,
   thermal_extractor: createThermalExtractor,
@@ -954,6 +1041,10 @@ const buildingGenerators = {
   shipyard: createShipyard,
   trade_depot: createTradeDepot,
   shield_gen: createShieldGen,
+  power_plant: createPowerPlant,
+  refinery: createRefinery,
+  sensor_tower: createSensorTower,
+  repair_bay: createRepairBay,
 };
 
 // ============================================================
@@ -977,6 +1068,10 @@ const BUILDING_GLBS = {
   shipyard:          '/assets/models/buildings/shipyard.glb',
   trade_depot:       '/assets/models/buildings/trade_depot.glb',
   shield_gen:        '/assets/models/buildings/shield_gen.glb',
+  power_plant:       '/assets/models/buildings/power_plant.glb',
+  refinery:          '/assets/models/buildings/refinery.glb',
+  sensor_tower:      '/assets/models/buildings/sensor_tower.glb',
+  repair_bay:        '/assets/models/buildings/repair_bay.glb',
 };
 
 // ============================================================
@@ -1299,7 +1394,17 @@ function placeBuilding(type, q, r, free = false, zoneId = 0) {
   mesh.userData = { type, q, r, zoneId, level: 1, def, isGlb: !!glbTemplate };
   planetScene.add(mesh);
 
-  const building = { type, q, r, zoneId, level: 1, mesh, def };
+  // Construction state. Buildings start at progress=0 and animate up to 1
+  // over `buildTime` seconds while the see-through blueprint shader is
+  // applied. Free placements (initial command center, save loads) skip
+  // construction and are placed instantly complete.
+  const buildTime = 4 + (def.cost.energy + def.cost.minerals) * 0.04;
+  const building = {
+    type, q, r, zoneId, level: 1, mesh, def,
+    constructProgress: free ? 1 : 0,
+    buildTime,
+  };
+  if (!free) applyConstructionShader(building);
   GS.buildings.push(building);
   GS.grid.set(key, building);
   recalcMaxPop();
@@ -1329,15 +1434,21 @@ function placeBuilding(type, q, r, free = false, zoneId = 0) {
   return true;
 }
 
+// Helper: only completed buildings count for stats / production / effects.
+const isOperational = b => (b.constructProgress ?? 1) >= 1;
+
 function recalcMaxPop() {
   GS.maxPopulation = 10;
-  GS.buildings.forEach(b => { GS.maxPopulation += (b.def.maxPopBonus || 0) * b.level; });
+  GS.buildings.forEach(b => {
+    if (isOperational(b)) GS.maxPopulation += (b.def.maxPopBonus || 0) * b.level;
+  });
 }
 
 function recalcDefense() {
   GS.defenseRating = 0;
   GS.shieldActive = false;
   GS.buildings.forEach(b => {
+    if (!isOperational(b)) return;
     if (b.def.effect === 'turret') GS.defenseRating += 10 * b.level;
     if (b.def.effect === 'defense') GS.defenseRating += 5 * b.level;
     if (b.def.effect === 'shield') { GS.shieldActive = true; GS.defenseRating += 20 * b.level; }
@@ -1348,6 +1459,7 @@ function getProductionRates() {
   const rates = { energy: 0, minerals: 0 };
   const extractionBonus = GS.researchedTechs.has('advanced_extraction') ? 1.5 : 1.0;
   GS.buildings.forEach(b => {
+    if (!isOperational(b)) return;
     if (b.def.production.energy) rates.energy += b.def.production.energy * b.level * (b.type.includes('extractor') ? extractionBonus : 1);
     if (b.def.production.minerals) rates.minerals += b.def.production.minerals * b.level * (b.type.includes('drill') ? extractionBonus : 1);
   });
@@ -1358,13 +1470,17 @@ function getProductionRates() {
 
 function getStorageCap() {
   let bonus = 0;
-  GS.buildings.forEach(b => { if (b.def.effect === 'storageBonus') bonus += 100 * b.level; });
+  GS.buildings.forEach(b => {
+    if (isOperational(b) && b.def.effect === 'storageBonus') bonus += 100 * b.level;
+  });
   return { energy: 200 + bonus, minerals: 200 + bonus };
 }
 
 function getResearchSpeed() {
   let mult = 1.0;
-  GS.buildings.forEach(b => { if (b.def.effect === 'researchSpeed') mult += 0.3 * b.level; });
+  GS.buildings.forEach(b => {
+    if (isOperational(b) && b.def.effect === 'researchSpeed') mult += 0.3 * b.level;
+  });
   return mult;
 }
 
@@ -2058,6 +2174,10 @@ function updateGame(dt) {
   if (GS.matchEnded) return;
   const adt = dt * GS.gameSpeed; // game-speed-adjusted dt
 
+  // Building construction progress -- ticks with game-speed-adjusted dt
+  // so the blueprint shader fills in faster when the player speeds up.
+  tickConstruction(adt);
+
   // Match timer (wall clock, not game speed)
   if (GS.matchMode) {
     GS.matchTimeRemaining -= dt;
@@ -2255,6 +2375,64 @@ function animateBuildings(time) {
       if (c.name === 'holo-display') { c.material.opacity = 0.4 + Math.sin(time * 2) * 0.2; c.rotation.y = time * 0.3; }
       if (c.name === 'trade-pad') c.rotation.y = time * 0.5;
     });
+  });
+}
+
+// ============================================================
+// CONSTRUCTION (in-progress) shader management
+// ------------------------------------------------------------
+// While a building's constructProgress < 1 we swap every mesh's
+// material for a translucent blue blueprint shader. The shader's
+// uProgress fills upward over time. When complete we restore the
+// original materials and free the construction shader instance.
+// ============================================================
+function applyConstructionShader(b) {
+  // Compute the building's local-space height so the build line
+  // travels from base to top regardless of asset size.
+  const box = new THREE.Box3().setFromObject(b.mesh);
+  const sz = new THREE.Vector3();
+  box.getSize(sz);
+  const buildY = Math.max(sz.y / b.mesh.scale.y, 1.0);
+
+  const ctorMat = createConstructionShader();
+  ctorMat.uniforms.uBuildY.value = buildY;
+  ctorMat.uniforms.uProgress.value = b.constructProgress;
+  allShaders.push(ctorMat);
+  b.constructionMat = ctorMat;
+  b.originalMaterials = [];
+
+  b.mesh.traverse(c => {
+    if (c.isMesh) {
+      b.originalMaterials.push({ mesh: c, mat: c.material });
+      c.material = ctorMat;
+    }
+  });
+}
+
+function finishConstruction(b) {
+  if (b.originalMaterials) {
+    b.originalMaterials.forEach(({ mesh, mat }) => { mesh.material = mat; });
+    b.originalMaterials = null;
+  }
+  if (b.constructionMat) {
+    const i = allShaders.indexOf(b.constructionMat);
+    if (i >= 0) allShaders.splice(i, 1);
+    b.constructionMat = null;
+  }
+  b.constructProgress = 1;
+  // Recalc anything that depends on operational buildings.
+  recalcMaxPop();
+  recalcDefense();
+}
+
+function tickConstruction(dt) {
+  GS.buildings.forEach(b => {
+    if (b.constructProgress >= 1) return;
+    b.constructProgress = Math.min(1, b.constructProgress + dt / b.buildTime);
+    if (b.constructionMat) {
+      b.constructionMat.uniforms.uProgress.value = b.constructProgress;
+    }
+    if (b.constructProgress >= 1) finishConstruction(b);
   });
 }
 

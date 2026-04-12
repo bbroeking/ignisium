@@ -1349,6 +1349,91 @@ export function createHologramShader() {
 }
 
 // ============================================================
+// 8b. CONSTRUCTION SHADER — Building under construction
+//     Translucent blue with a "build line" that fills upward as
+//     uProgress goes from 0 to 1. Above the line: see-through with
+//     animated scanlines. Below: solidifying. At the line: bright glow.
+// ============================================================
+export function createConstructionShader() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime:     { value: 0 },
+      uProgress: { value: 0 },           // 0 = just placed, 1 = complete
+      uColor:    { value: new THREE.Color(0x00ccff) },
+      uBuildY:   { value: 4.0 },         // approx world-Y height of the building
+    },
+    vertexShader: `
+      varying vec3 vWorldPos;
+      varying vec3 vLocalPos;
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+      void main() {
+        vLocalPos = position;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vNormal = normalize(normalMatrix * normal);
+        vec4 mvPos = viewMatrix * wp;
+        vViewDir = normalize(-mvPos.xyz);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uProgress;
+      uniform vec3 uColor;
+      uniform float uBuildY;
+      varying vec3 vWorldPos;
+      varying vec3 vLocalPos;
+      varying vec3 vNormal;
+      varying vec3 vViewDir;
+
+      void main() {
+        // Local-space height [0..1] (assumes building origin near base).
+        float ly = clamp(vLocalPos.y / uBuildY, 0.0, 1.0);
+
+        // The build line slowly rises from y=0 to y=1 as uProgress goes 0->1.
+        float buildLine = uProgress;
+        float distFromLine = ly - buildLine;
+
+        // Below build line: solidify (more opaque, less transparent).
+        // Above build line: ghosted (translucent + scanlines).
+        float below = step(distFromLine, 0.0);
+
+        // Soft glow band right at the build line itself.
+        float lineGlow = exp(-pow(distFromLine * 8.0, 2.0));
+
+        // Animated horizontal scanlines for the "ghost" portion.
+        float scan = sin(vWorldPos.y * 25.0 - uTime * 4.0) * 0.5 + 0.5;
+        scan = pow(scan, 3.0);
+
+        // Fresnel rim -- the outline of the building glows brighter so it
+        // reads clearly against the colony floor at any angle.
+        float rim = 1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0);
+        rim = pow(rim, 2.0);
+
+        // Compose color. Below the line is more saturated/solid; above is
+        // a fainter scanline pattern. Bright cyan ring at the line itself.
+        vec3 col = uColor * (0.6 + scan * 0.4);
+        col += uColor * lineGlow * 1.5;
+        col += uColor * rim * 0.8;
+        col *= mix(0.65, 1.0, below);
+
+        // Alpha: more opaque below the line, ghostly above. Always at
+        // least somewhat visible so the silhouette reads.
+        float alpha = mix(0.35, 0.85, below);
+        alpha = max(alpha, lineGlow * 0.9);
+        alpha = max(alpha, rim * 0.5);
+
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+}
+
+// ============================================================
 // 9. STYLIZED BUILDING SHADER — Toon PBR with panel lines
 // ============================================================
 export function createBuildingShader(baseColor = new THREE.Color(0x3a3a4a), emissiveColor = new THREE.Color(0x000000)) {
