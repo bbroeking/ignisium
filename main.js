@@ -985,21 +985,29 @@ const BUILDING_GLBS = {
 // Keys must match PlanetDefs.name (lowercased).
 // ============================================================
 const PLANET_SHADER_CONFIGS = {
+  // Palettes extracted from the MJ concept art via extract_palette.py.
+  // To re-tune: regenerate the MJ marble in input/, run
+  // `runtime/.../python.exe extract_palette.py 6`, paste the new
+  // colorStops back here.
   ignisium: {
     baseScale: 2.5,
     octaves: 5,
     roughness: 0.55,
+    // Extracted palette (the MJ image came out as a cool-blue planet
+    // rather than volcanic). Keeping the emissive lift so noise
+    // highlights still glow -- gives an "ice-cracked-with-glow" look
+    // until a more volcanic concept art is regenerated.
     colorStops: [
-      { stop: 0.00, color: 0x110b06 },  // deep obsidian
-      { stop: 0.45, color: 0x2b1a08 },  // dark basalt
-      { stop: 0.55, color: 0x6d2810 },  // crusted lava
-      { stop: 0.70, color: 0xc04020 },  // glowing magma
-      { stop: 0.85, color: 0xff8a30 },  // bright orange flow
-      { stop: 1.00, color: 0xffe080 },  // hottest spots
+      { stop: 0.00, color: 0x161928 },
+      { stop: 0.20, color: 0x1b2536 },
+      { stop: 0.40, color: 0x252738 },
+      { stop: 0.60, color: 0x283448 },
+      { stop: 0.80, color: 0xb6c9db },
+      { stop: 1.00, color: 0xc7d7e5 },
     ],
     emissive: 0xff5520,
-    emissiveIntensity: 0.55,
-    ambient: [0.30, 0.18, 0.12],
+    emissiveIntensity: 0.30,
+    ambient: [0.25, 0.28, 0.35],
     timeScale: 0.05,
   },
   crystara: {
@@ -1007,11 +1015,12 @@ const PLANET_SHADER_CONFIGS = {
     octaves: 5,
     roughness: 0.6,
     colorStops: [
-      { stop: 0.00, color: 0x0c2545 },
-      { stop: 0.30, color: 0x1a4a7c },
-      { stop: 0.55, color: 0x4ea0d4 },
-      { stop: 0.78, color: 0x9fdcec },
-      { stop: 0.95, color: 0xffffff },
+      { stop: 0.00, color: 0x253a58 },
+      { stop: 0.20, color: 0x274567 },
+      { stop: 0.40, color: 0x4b5569 },
+      { stop: 0.60, color: 0xd7d7d9 },
+      { stop: 0.80, color: 0xe8e7e9 },
+      { stop: 1.00, color: 0xf9f9fb },
     ],
     ambient: [0.40, 0.46, 0.55],
   },
@@ -1020,14 +1029,14 @@ const PLANET_SHADER_CONFIGS = {
     octaves: 6,
     roughness: 0.55,
     colorStops: [
-      { stop: 0.00, color: 0x081a30 },
-      { stop: 0.40, color: 0x1858a0 },
-      { stop: 0.50, color: 0x76a050 },
-      { stop: 0.65, color: 0x3c7c2c },
-      { stop: 0.82, color: 0x6c5c3a },
-      { stop: 0.95, color: 0xeeeeee },
+      { stop: 0.00, color: 0x1b2626 },
+      { stop: 0.20, color: 0x263529 },
+      { stop: 0.40, color: 0x283636 },
+      { stop: 0.60, color: 0x273747 },
+      { stop: 0.80, color: 0x364637 },
+      { stop: 1.00, color: 0x284965 },
     ],
-    cloudOpacity: 0.45,
+    cloudOpacity: 0.40,
     cloudScale: 4.5,
     cloudDrift: 0.04,
     timeScale: 0.05,
@@ -1040,11 +1049,12 @@ const PLANET_SHADER_CONFIGS = {
     bandFrequency: 4.0,
     bandTurbulence: 0.9,
     colorStops: [
-      { stop: 0.00, color: 0x6c1a44 },
-      { stop: 0.30, color: 0xa83870 },
-      { stop: 0.55, color: 0xc66050 },
-      { stop: 0.78, color: 0xe0a050 },
-      { stop: 1.00, color: 0xfde6a0 },
+      { stop: 0.00, color: 0x281939 },
+      { stop: 0.20, color: 0x361a38 },
+      { stop: 0.40, color: 0x282447 },
+      { stop: 0.60, color: 0x572746 },
+      { stop: 0.80, color: 0x274468 },
+      { stop: 1.00, color: 0xfbfbfb },
     ],
     timeScale: 0.03,
   },
@@ -1065,10 +1075,13 @@ const PLANET_SHADER_CONFIGS = {
     octaves: 4,
     roughness: 0.5,
     colorStops: [
-      { stop: 0.00, color: 0xc02000 },
-      { stop: 0.40, color: 0xff8000 },
-      { stop: 0.70, color: 0xffd040 },
-      { stop: 1.00, color: 0xffffff },
+      // Drop the cool-blue bleed from the extracted palette (rows 0-1)
+      // -- those came from background pixels at the marble's limb,
+      // they don't belong on a sun. Keep the warm middle/top.
+      { stop: 0.00, color: 0xd38a38 },
+      { stop: 0.30, color: 0xd9943a },
+      { stop: 0.65, color: 0xe7a747 },
+      { stop: 1.00, color: 0xf8c865 },
     ],
     unlit: true,
     timeScale: 0.25,
