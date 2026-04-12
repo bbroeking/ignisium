@@ -430,15 +430,11 @@ function buildSolarSystem() {
           // even on the dark side without washing out cool ones.
           emissive: new THREE.Color(p.emissive),
           emissiveIntensity: (p.emissiveIntensity ?? 1.0) * 0.25,
-          // Per-planet sphere mapping mode (PlanetDefs decides which
-          // looks right). Triplanar is great for noisy textures, breaks
-          // visibly on horizontal-band gas giants -- those use 'equirect'.
-          mapping: p.mapping ?? 'triplanar',
-          // For equirect, MJ marbles have a black background; sample
-          // only the texture's central band so we don't paint the
-          // poles black. Per-planet override possible via PlanetDefs.
-          uRange: p.uRange ?? (p.mapping === 'equirect' ? 0.7 : 1.0),
-          vRange: p.vRange ?? (p.mapping === 'equirect' ? 0.6 : 1.0),
+          // Textures from install_textures.py are now true equirectangular
+          // maps (orthographic-marble -> equirect reprojection done in
+          // Python). So equirect mapping is the right default for ALL
+          // planets -- no triplanar needed, no UV-range hacks.
+          mapping: 'equirect',
         });
         allShaders.push(planetMat);
         mesh.material = planetMat;

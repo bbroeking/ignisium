@@ -25,14 +25,24 @@ import re
 import shutil
 import sys
 from pathlib import Path
+import numpy as np
 from PIL import Image
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 INPUT_DIR = SCRIPT_DIR / "input"
 TEXTURES_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "textures" / "celestial").resolve()
 
-TARGET_SIZE = 1024  # px, square (MJ's native output for these prompts)
-WEBP_QUALITY = 95   # near-lossless; preserves planet detail
+# Output is equirectangular (2:1 aspect) so it wraps onto a sphere correctly
+# with standard sphere UV mapping. MJ outputs orthographic marbles -- we
+# re-project them into equirect here. The "back hemisphere" of the planet
+# becomes a mirror of the front (a tradeoff for getting a seamless wrap).
+EQUIRECT_W = 2048
+EQUIRECT_H = 1024
+WEBP_QUALITY = 95
+# How much of the source image is occupied by the planet orb (the rest
+# is the black background MJ renders around it). MJ marbles per these
+# prompts have orb_radius ~ 0.40 * image_width.
+PLANET_RADIUS_FRAC = 0.45
 
 # Keyword -> celestial key. First match wins; multi-word keywords with
 # spaces will be checked against the lowercased filename with "_" -> " ".
@@ -59,8 +69,46 @@ def detect_celestial(filename: str) -> str | None:
     return None
 
 
+def spherify(marble: Image.Image) -> Image.Image:
+    """Reproject an orthographic-marble planet view into an equirectangular
+    map (2:1 aspect ratio) suitable for standard sphere UV mapping.
+
+    The marble is treated as an orthographic view of a unit sphere. For
+    each output pixel (lat, lon) we compute the corresponding 3D point on
+    the sphere, project it back to 2D image coords, and sample the marble
+    there. Both hemispheres sample the same 2D point -- so the back of the
+    planet is a horizontal mirror of the front. This is the right tradeoff:
+    no visible seam, planet is recognizable from any angle.
+    """
+    src = np.asarray(marble.convert("RGB"))
+    h_src, w_src, _ = src.shape
+    cx, cy = w_src / 2.0, h_src / 2.0
+    R = min(w_src, h_src) * PLANET_RADIUS_FRAC
+
+    # Latitude/longitude grid for the equirect output.
+    # Pixel (x, y) -> lon in (-pi, pi], lat in [-pi/2, pi/2].
+    yy, xx = np.mgrid[0:EQUIRECT_H, 0:EQUIRECT_W]
+    lat = (0.5 - yy / EQUIRECT_H) * np.pi          # +pi/2 (north) to -pi/2
+    lon = (xx / EQUIRECT_W - 0.5) * 2.0 * np.pi    # -pi to +pi
+
+    # 3D unit-sphere position for each output pixel.
+    cos_lat = np.cos(lat)
+    sx = cos_lat * np.sin(lon)
+    sy = np.sin(lat)
+    # sz = cos_lat * np.cos(lon)  # not needed -- both hemispheres mirror
+
+    # Orthographic projection back into the marble's 2D coords.
+    ix = (cx + sx * R).astype(np.int32)
+    iy = (cy - sy * R).astype(np.int32)
+    np.clip(ix, 0, w_src - 1, out=ix)
+    np.clip(iy, 0, h_src - 1, out=iy)
+
+    out = src[iy, ix]
+    return Image.fromarray(out)
+
+
 def process(png_path: Path, out_path: Path) -> tuple[int, int]:
-    """Resize and save as WebP. Returns (src_bytes, out_bytes)."""
+    """Spherify the marble and save as WebP. Returns (src_bytes, out_bytes)."""
     src_bytes = png_path.stat().st_size
     img = Image.open(png_path).convert("RGB")
     # Center-crop to square if the source isn't already square (MJ outputs
@@ -69,10 +117,10 @@ def process(png_path: Path, out_path: Path) -> tuple[int, int]:
     if w != h:
         m = min(w, h)
         img = img.crop(((w - m) // 2, (h - m) // 2, (w + m) // 2, (h + m) // 2))
-    if img.size != (TARGET_SIZE, TARGET_SIZE):
-        img = img.resize((TARGET_SIZE, TARGET_SIZE), Image.LANCZOS)
+    # Reproject orthographic marble -> equirectangular (2:1).
+    eq = spherify(img)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out_path, "WEBP", quality=WEBP_QUALITY, method=6)
+    eq.save(out_path, "WEBP", quality=WEBP_QUALITY, method=6)
     out_bytes = out_path.stat().st_size
     return src_bytes, out_bytes
 
@@ -89,7 +137,8 @@ def main():
 
     print(f"Scanning {len(pngs)} images in {INPUT_DIR}")
     print(f"Target:   {TEXTURES_DIR}")
-    print(f"Format:   {TARGET_SIZE}x{TARGET_SIZE} WebP (quality {WEBP_QUALITY})")
+    print(f"Format:   {EQUIRECT_W}x{EQUIRECT_H} equirectangular WebP "
+          f"(quality {WEBP_QUALITY})")
     print()
 
     matched = []
