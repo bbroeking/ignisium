@@ -28,6 +28,23 @@ batch.bat --dry-run
 
 :: Combine options
 batch.bat input/ --preset high --no-texture --dry-run
+
+:: --- Post-batch pipeline ---
+
+:: 1. Headless Blender cleanup + LODs (output/ -> processed/)
+postprocess.bat
+
+:: 2. Web compression: WebP textures + Draco mesh (processed/ -> processed/web/)
+compress.bat
+```
+
+The full asset flow is:
+
+```
+inbox/ or input/   --batch.bat-->     output/*.glb   (~6 MB each, raw)
+output/            --postprocess.bat--> processed/*.glb + processed/lods/  (cleaned, LODs)
+processed/         --compress.bat-->   processed/web/*.glb              (~0.4 MB each)
+processed/web/     --copy by hand-->   public/assets/models/buildings/  (game)
 ```
 
 ## Setup

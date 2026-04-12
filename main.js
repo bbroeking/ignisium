@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -953,6 +954,11 @@ const BUILDING_GLBS = {
 // type -> prepared THREE.Group template, cloned for each placement
 const buildingGlbTemplates = new Map();
 const gltfLoader = new GLTFLoader();
+// Building GLBs are Draco-compressed by asset-pipeline/compress.py. The
+// decoder wasm/js lives in /public/draco/ (copied from three/examples).
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('/draco/');
+gltfLoader.setDRACOLoader(dracoLoader);
 
 // Normalize an imported GLB root so it sits on the hex-grid footprint the
 // primitive generators use (roughly a 4-unit-wide square centered on origin,
