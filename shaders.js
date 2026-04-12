@@ -997,6 +997,18 @@ export function createTexturedBuildingShader(albedoMap) {
 
       void main() {
         vec3 baseColor = texture2D(uAlbedo, vUv).rgb;
+
+        // === TEAM-COLOR MASK ===
+        // Asset prompts (see asset-pipeline/prompts.py) reserve bright
+        // magenta (1, 0, 1) for player-tinted regions. Detect those
+        // pixels here and substitute uTeamColor so the same baked
+        // texture works for every player.
+        // Mask = high R * high B * low G; thresholded so dark or muted
+        // colors don't trigger.
+        float magentaMask = baseColor.r * baseColor.b * (1.0 - baseColor.g);
+        magentaMask = smoothstep(0.3, 0.6, magentaMask);
+        baseColor = mix(baseColor, uTeamColor, magentaMask);
+
         vec3 N = normalize(vNormal);
         vec3 V = normalize(vViewDir);
         vec3 L = normalize(uLightDir);

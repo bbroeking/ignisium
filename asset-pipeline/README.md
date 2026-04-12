@@ -241,19 +241,38 @@ Export Textured GLB (~2 min total)
 
 ### Auto-loading GLBs
 
-Copy to `public/assets/models/buildings/<type>.glb`:
+Buildings -> `public/assets/models/buildings/<type>.glb`:
 
 ```
 command_center, thermal_extractor, mineral_drill, habitat_pod,
 research_lab, warehouse, barracks, defense_turret, shipyard,
-trade_depot, shield_gen
+trade_depot, shield_gen,
+power_plant, refinery, sensor_tower, repair_bay
 ```
 
-Game auto-loads at startup and swaps primitive placeholders.
+Units -> `public/assets/models/units/<type>.glb`:
+
+```
+fighter, transport, colony_ship,
+marine, heavy_trooper, engineer_drone, scout_drone
+```
+
+The pipeline queue's auto-installer routes by name: anything in
+`AssetInstaller.KNOWN_BUILDINGS` lands in `buildings/`, anything in
+`KNOWN_UNITS` in `units/`. Game auto-loads at startup and swaps primitive
+placeholders.
 
 ### Building Shader
 
-Imported GLBs get a stylized shader: toon diffuse, specular, procedural panel lines, weathering, rim light, lava underlight, team-color accent.
+Imported GLBs get a stylized shader: toon diffuse, specular, procedural panel
+lines, weathering, rim light, lava underlight, **per-player team color via
+magenta-mask substitution**.
+
+**Team color convention:** Asset prompts (see `prompts.py`) reserve **bright
+magenta (1, 0, 1)** for player-tinted regions. The fragment shader detects
+near-magenta texels in the baked PBR texture and substitutes `uTeamColor`
+on the GPU. One asset works for every player. Decorative reds/yellows/ambers
+are outside the magenta hot range and stay as-is.
 
 ### Procedural Animations
 

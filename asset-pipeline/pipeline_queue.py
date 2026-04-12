@@ -51,7 +51,10 @@ INBOX_DIR.mkdir(exist_ok=True)
 QUEUE_FILE = SCRIPT_DIR / "queue.json"
 ENV_FILE = SCRIPT_DIR / ".env"
 
-GAME_ASSETS_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "models" / "buildings").resolve()
+GAME_BUILDINGS_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "models" / "buildings").resolve()
+GAME_UNITS_DIR = (SCRIPT_DIR.parent / "public" / "assets" / "models" / "units").resolve()
+# Backwards-compat alias for callers that still reference the old name.
+GAME_ASSETS_DIR = GAME_BUILDINGS_DIR
 
 
 def _load_env(path: Path) -> Dict[str, str]:
@@ -101,6 +104,7 @@ class Job:
     id: str
     subject: str            # raw user input ("command center with four pylons")
     asset_name: str         # snake_case, used for filename + game install lookup
+    kind: str = "building"  # "building" or "unit" -- selects prompt template
     preset: str = "high"    # quality preset for the 3D step
     state: str = JobState.NEW.value
     prompt: str = ""        # full MJ prompt after generation
@@ -124,6 +128,8 @@ class Job:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Job":
+        # Tolerate older queue.json files that predate certain fields.
+        d = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
         return cls(**d)
 
 
@@ -188,6 +194,7 @@ class JobStore:
 # ---------------------------------------------------------------------------
 # Prompt generator: Ollama (optional) + structured template fallback
 # ---------------------------------------------------------------------------
+# Building wrapper template -- isolated structure on a tile
 PROMPT_TEMPLATE = (
     "{subject_phrase}, isometric 3/4 view, centered isolated 3D game asset, "
     "hard surface design, sharp clean geometry, strong silhouette, "
@@ -197,6 +204,30 @@ PROMPT_TEMPLATE = (
     "no text, no logo, no watermark, no environment, no atmosphere, "
     "no smoke, no particles, no ground plane, no shadow "
     "--ar 1:1 --s 50"
+)
+
+# Unit wrapper template -- small movable entity (ship, trooper, drone). Drops
+# the "fully visible building" framing and emphasises silhouette readability
+# at small render sizes.
+PROMPT_TEMPLATE_UNIT = (
+    "{subject_phrase}, isometric 3/4 view, centered isolated 3D game asset miniature, "
+    "single character or vehicle, simple recognizable silhouette, hard surface design, "
+    "sharp clean geometry, studio product render, even softbox lighting, "
+    "no harsh shadows, no rim light, {material_phrase}, painted PBR, "
+    "no emissive lights, no glow, plain pure white background, "
+    "single object centered in frame, no display base, no platform, "
+    "no text, no logo, no watermark, no environment, no atmosphere, "
+    "no smoke, no particles, no ground plane, no shadow "
+    "--ar 1:1 --s 50"
+)
+
+# Material phrase used for both templates. Magenta is the team-color
+# reservation -- the runtime shader detects bright magenta pixels in the
+# baked PBR texture and replaces them with the player's team color. See
+# the convention block at the top of prompts.py.
+MATERIAL_PHRASE = (
+    "matte painted dark gunmetal grey with bright magenta accent panels "
+    "reserved for team color"
 )
 
 OLLAMA_SYSTEM_PROMPT = """You are a Midjourney prompt expert specializing in image-to-3D pipelines.
@@ -210,6 +241,8 @@ Rules:
 - The prompt MUST include the phrases: "isometric 3/4 view", "centered isolated 3D game asset",
   "studio product render", "plain pure white background", "no emissive lights, no glow"
 - Materials should be matte/painted, never "glowing" or "luminescent"
+- Any team-color region MUST be described as "bright magenta accent panels/stripes" -- this is a
+  reservation color the runtime shader replaces per player. Never use cyan or "team color" literally.
 - No "lit windows" — use "narrow window slits" or "dark window panels" instead
 - No "spires" or "antennas" thinner than a finger — they vanish in 3D extraction
 - No "atmosphere", "smoke", "lava", "sparks", or any environmental effects
@@ -217,7 +250,7 @@ Rules:
 - Output the prompt and nothing else
 
 Style reference: small architectural model rendered for a game asset reference sheet,
-Blizzard StarCraft 2 / Riot hand-painted PBR look, dark gunmetal with cyan team-color trim.
+Blizzard StarCraft 2 / Riot hand-painted PBR look, dark gunmetal with bright magenta team-color reservation panels.
 """.replace("{TEMPLATE}", PROMPT_TEMPLATE)
 
 
@@ -238,8 +271,11 @@ class PromptGenerator:
         except Exception:
             return False
 
-    def generate(self, subject: str) -> str:
-        """Produce one full MJ prompt for the given subject text."""
+    def generate(self, subject: str, kind: str = "building") -> str:
+        """Produce one full MJ prompt for the given subject text.
+
+        kind: "building" or "unit" -- selects the wrapper template.
+        """
         # 1. Try Ollama if configured + reachable + model available
         if self._ollama_available():
             try:
@@ -247,7 +283,7 @@ class PromptGenerator:
             except Exception as e:
                 print(f"[queue] Ollama generation failed, falling back to template: {e}")
         # 2. Templated fallback
-        return self._template_generate(subject)
+        return self._template_generate(subject, kind=kind)
 
     def _ollama_generate(self, subject: str) -> str:
         import urllib.request
@@ -276,21 +312,22 @@ class PromptGenerator:
             text = text.rstrip(" .,") + " --ar 1:1 --s 50"
         return text
 
-    def _template_generate(self, subject: str) -> str:
+    def _template_generate(self, subject: str, kind: str = "building") -> str:
         """Pure template fill — no LLM, but always produces a usable prompt."""
-        # Heuristic: if the subject already mentions a colour/material, use it as-is.
         s = subject.strip().rstrip(",.")
-        # Phrase the subject as a "small ___ model" so MJ renders an isolated object
-        if not s.lower().startswith("a "):
-            subject_phrase = f"A small sci-fi {s} model"
+        if kind == "unit":
+            # Units don't get the "small sci-fi ___ model" wrapping; their
+            # subject already describes a single character or vehicle.
+            subject_phrase = s if s.lower().startswith("a ") else f"A {s}"
+            template = PROMPT_TEMPLATE_UNIT
         else:
-            subject_phrase = s
-        material_phrase = (
-            "matte painted dark gunmetal grey with subtle cyan team-color trim panels"
-        )
-        return PROMPT_TEMPLATE.format(
+            # Buildings get the "small ___ model" wrapping so MJ renders an
+            # isolated structure rather than an environment shot.
+            subject_phrase = s if s.lower().startswith("a ") else f"A small sci-fi {s} model"
+            template = PROMPT_TEMPLATE
+        return template.format(
             subject_phrase=subject_phrase,
-            material_phrase=material_phrase,
+            material_phrase=MATERIAL_PHRASE,
         )
 
 
@@ -562,14 +599,24 @@ class AssetInstaller:
         "command_center", "thermal_extractor", "mineral_drill", "habitat_pod",
         "research_lab", "warehouse", "barracks", "defense_turret",
         "shipyard", "trade_depot", "shield_gen",
+        # Newer set
+        "power_plant", "refinery", "sensor_tower", "repair_bay",
+    }
+    KNOWN_UNITS = {
+        "fighter", "transport", "colony_ship",
+        "marine", "heavy_trooper", "engineer_drone", "scout_drone",
     }
 
     def install(self, glb_path: Path, asset_name: str) -> Optional[Path]:
         slug = asset_name.lower().strip()
-        if slug not in self.KNOWN_BUILDINGS:
+        if slug in self.KNOWN_BUILDINGS:
+            target_dir = GAME_BUILDINGS_DIR
+        elif slug in self.KNOWN_UNITS:
+            target_dir = GAME_UNITS_DIR
+        else:
             return None
-        GAME_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-        target = GAME_ASSETS_DIR / f"{slug}.glb"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{slug}.glb"
         shutil.copy(str(glb_path), str(target))
         return target
 
@@ -620,7 +667,7 @@ class PipelineWorker(threading.Thread):
             job.state = JobState.PROMPTING.value
             job.add_log("Generating MJ prompt...")
             self.store.update(job)
-            job.prompt = self.prompt_gen.generate(job.subject)
+            job.prompt = self.prompt_gen.generate(job.subject, kind=job.kind)
             job.add_log(f"Prompt: {job.prompt[:120]}...")
             job.state = JobState.PROMPT_READY.value
             self.store.update(job)
@@ -721,14 +768,16 @@ class PipelineQueue:
                 cls._instance = cls()
             return cls._instance
 
-    def add_job(self, subject: str, asset_name: str, preset: str = "high") -> Job:
+    def add_job(self, subject: str, asset_name: str,
+                preset: str = "high", kind: str = "building") -> Job:
         job = Job(
             id=uuid.uuid4().hex[:8],
             subject=subject.strip(),
             asset_name=re.sub(r"[^a-z0-9_]", "", asset_name.lower().replace(" ", "_")) or "asset",
+            kind=kind,
             preset=preset,
         )
-        job.add_log(f"Created (subject={subject!r}, preset={preset})")
+        job.add_log(f"Created (kind={kind}, subject={subject!r}, preset={preset})")
         self.store.add(job)
         return job
 
