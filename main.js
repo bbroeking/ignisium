@@ -1249,7 +1249,7 @@ function normalizeBuildingGlb(root) {
   const size = new THREE.Vector3();
   box.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const targetSize = 4; // tune to match primitive footprint
+  const targetSize = 7; // match primitive footprints (CC base is ~10 units)
   const scale = targetSize / maxDim;
   root.scale.setScalar(scale);
   // Recompute box post-scale to park the mesh on the ground.
@@ -1301,7 +1301,14 @@ function preloadBuildingGlbs() {
           const newMesh = template.clone(true);
           newMesh.position.copy(b.mesh.position);
           newMesh.rotation.copy(b.mesh.rotation);
-          newMesh.scale.setScalar(1 + (b.level - 1) * 0.08);
+          // Preserve in-progress construction scaling. If the building
+          // is under construction its scale.y is mid-growth; copy that.
+          // Otherwise snap to the level-based final scale.
+          if ((b.constructProgress ?? 1) < 1 && b.mesh) {
+            newMesh.scale.copy(b.mesh.scale);
+          } else {
+            newMesh.scale.setScalar(1 + (b.level - 1) * 0.08);
+          }
           newMesh.userData = { ...b.mesh.userData, isGlb: true };
           newMesh.visible = b.mesh.visible;
           planetScene.remove(b.mesh);
@@ -2379,48 +2386,57 @@ function animateBuildings(time) {
 }
 
 // ============================================================
-// CONSTRUCTION (in-progress) shader management
+// CONSTRUCTION (in-progress) state
 // ------------------------------------------------------------
-// While a building's constructProgress < 1 we swap every mesh's
-// material for a translucent blue blueprint shader. The shader's
-// uProgress fills upward over time. When complete we restore the
-// original materials and free the construction shader instance.
+// Simple & robust: the building mesh grows out of the ground.
+// Vertical scale goes from MIN_SCALE to its level-based final scale
+// as constructProgress goes 0 -> 1. A translucent cyan "build pad"
+// cylinder is added beneath while construction is in progress.
+//
+// This intentionally avoids mutating any of the building's materials
+// -- GLB templates share materials across clones and there were
+// ordering bugs when material references collided across the async
+// GLB-swap logic.
 // ============================================================
+const CONSTRUCTION_MIN_SCALE_Y = 0.08;
+
 function applyConstructionShader(b) {
-  // Compute the building's local-space height so the build line
-  // travels from base to top regardless of asset size.
-  const box = new THREE.Box3().setFromObject(b.mesh);
-  const sz = new THREE.Vector3();
-  box.getSize(sz);
-  const buildY = Math.max(sz.y / b.mesh.scale.y, 1.0);
+  // Remember the level-based final scale so we can restore it when
+  // construction completes (levels apply a modest size bump).
+  const finalScale = 1 + (b.level - 1) * 0.08;
+  b.finalScale = finalScale;
+  b.mesh.scale.set(finalScale, CONSTRUCTION_MIN_SCALE_Y * finalScale, finalScale);
 
-  const ctorMat = createConstructionShader();
-  ctorMat.uniforms.uBuildY.value = buildY;
-  ctorMat.uniforms.uProgress.value = b.constructProgress;
-  allShaders.push(ctorMat);
-  b.constructionMat = ctorMat;
-  b.originalMaterials = [];
-
-  b.mesh.traverse(c => {
-    if (c.isMesh) {
-      b.originalMaterials.push({ mesh: c, mat: c.material });
-      c.material = ctorMat;
-    }
-  });
+  // Floating translucent pad that tracks the plot.
+  const padMat = createConstructionShader();
+  padMat.uniforms.uBuildY.value = 0.5;
+  padMat.uniforms.uProgress.value = 0.5; // stays glowing the whole time
+  allShaders.push(padMat);
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.2, 2.2, 0.3, 24),
+    padMat,
+  );
+  pad.position.copy(b.mesh.position);
+  pad.position.y = 0.15;
+  planetScene.add(pad);
+  b.constructionPad = pad;
+  b.constructionMat = padMat;
 }
 
 function finishConstruction(b) {
-  if (b.originalMaterials) {
-    b.originalMaterials.forEach(({ mesh, mat }) => { mesh.material = mat; });
-    b.originalMaterials = null;
+  if (b.constructionPad) {
+    planetScene.remove(b.constructionPad);
+    b.constructionPad.geometry?.dispose();
+    b.constructionPad = null;
   }
   if (b.constructionMat) {
     const i = allShaders.indexOf(b.constructionMat);
     if (i >= 0) allShaders.splice(i, 1);
     b.constructionMat = null;
   }
+  const finalScale = b.finalScale ?? 1;
+  b.mesh.scale.setScalar(finalScale);
   b.constructProgress = 1;
-  // Recalc anything that depends on operational buildings.
   recalcMaxPop();
   recalcDefense();
 }
@@ -2429,8 +2445,12 @@ function tickConstruction(dt) {
   GS.buildings.forEach(b => {
     if (b.constructProgress >= 1) return;
     b.constructProgress = Math.min(1, b.constructProgress + dt / b.buildTime);
-    if (b.constructionMat) {
-      b.constructionMat.uniforms.uProgress.value = b.constructProgress;
+    if (b.mesh) {
+      const finalScale = b.finalScale ?? 1;
+      // Smooth vertical growth via a slight ease-out curve.
+      const ease = 1 - Math.pow(1 - b.constructProgress, 2);
+      const yScale = (CONSTRUCTION_MIN_SCALE_Y + (1 - CONSTRUCTION_MIN_SCALE_Y) * ease) * finalScale;
+      b.mesh.scale.set(finalScale, yScale, finalScale);
     }
     if (b.constructProgress >= 1) finishConstruction(b);
   });
