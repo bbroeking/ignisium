@@ -1244,12 +1244,26 @@ gltfLoader.setDRACOLoader(dracoLoader);
 // Normalize an imported GLB root so it sits on the hex-grid footprint the
 // primitive generators use (roughly a 4-unit-wide square centered on origin,
 // pivot at y=0). Hunyuan3D output tends to be arbitrarily scaled.
-function normalizeBuildingGlb(root) {
+// Per-type GLB normalization target so buildings match their primitive
+// footprints. Anything not listed uses the default. Command Center and
+// Shipyard are the big hubs; most resource/civilian buildings are smaller.
+const BUILDING_TARGET_SIZES = {
+  command_center: 10,
+  shipyard: 10,
+  shield_gen: 8,
+  refinery: 8,
+  power_plant: 8,
+  sensor_tower: 8,
+  repair_bay: 8,
+};
+const BUILDING_DEFAULT_TARGET_SIZE = 7;
+
+function normalizeBuildingGlb(root, type) {
   const box = new THREE.Box3().setFromObject(root);
   const size = new THREE.Vector3();
   box.getSize(size);
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const targetSize = 7; // match primitive footprints (CC base is ~10 units)
+  const targetSize = BUILDING_TARGET_SIZES[type] ?? BUILDING_DEFAULT_TARGET_SIZE;
   const scale = targetSize / maxDim;
   root.scale.setScalar(scale);
   // Recompute box post-scale to park the mesh on the ground.
@@ -1291,7 +1305,7 @@ function preloadBuildingGlbs() {
       const ct = head.headers.get('content-type') || '';
       if (ct.includes('text/html')) return; // SPA fallback, file isn't actually there
       const gltf = await gltfLoader.loadAsync(url);
-      const template = normalizeBuildingGlb(gltf.scene);
+      const template = normalizeBuildingGlb(gltf.scene, type);
       buildingGlbTemplates.set(type, template);
       console.log(`[ignisium] loaded GLB for ${type}`);
       // Swap any already-placed primitive meshes for this building type.
@@ -1301,14 +1315,7 @@ function preloadBuildingGlbs() {
           const newMesh = template.clone(true);
           newMesh.position.copy(b.mesh.position);
           newMesh.rotation.copy(b.mesh.rotation);
-          // Preserve in-progress construction scaling. If the building
-          // is under construction its scale.y is mid-growth; copy that.
-          // Otherwise snap to the level-based final scale.
-          if ((b.constructProgress ?? 1) < 1 && b.mesh) {
-            newMesh.scale.copy(b.mesh.scale);
-          } else {
-            newMesh.scale.setScalar(1 + (b.level - 1) * 0.08);
-          }
+          newMesh.scale.setScalar(1 + (b.level - 1) * 0.08);
           newMesh.userData = { ...b.mesh.userData, isGlb: true };
           newMesh.visible = b.mesh.visible;
           planetScene.remove(b.mesh);
@@ -1684,8 +1691,8 @@ function showZoneUI() {
   const backBtn = $('btn-back-to-overview');
   if (backBtn) {
     backBtn.classList.remove('hidden');
-    const planetZones = ZONES.filter(z => z.planet === GS.activePlanet);
-    backBtn.textContent = planetZones.length === 1 ? '↑ Solar System' : '↑ Planet Overview';
+    // Always returns straight to solar now that planet_overview is gone.
+    backBtn.textContent = '↑ Solar System';
   }
   els.btnBuild?.classList.remove('hidden');
   els.btnTech?.classList.remove('hidden');
@@ -1958,12 +1965,8 @@ function showShipyardPanel() {
 els.btnBuild?.addEventListener('click', () => { populateBuildMenu(); els.buildMenu?.classList.toggle('hidden'); els.techPanel?.classList.add('hidden'); els.shipyardPanel?.classList.add('hidden'); });
 els.btnBackToSolar?.addEventListener('click', () => transitionToView('solar'));
 $('btn-back-to-overview')?.addEventListener('click', () => {
-  const planetZones = ZONES.filter(z => z.planet === GS.activePlanet);
-  if (planetZones.length === 1) {
-    transitionToView('solar');
-  } else {
-    transitionToView('planet_overview');
-  }
+  // planet_overview view is skipped entirely -- always return to solar.
+  transitionToView('solar');
 });
 els.infoPanelClose?.addEventListener('click', () => { els.infoPanel?.classList.add('hidden'); GS.selectedBuilding = null; });
 els.infoPanelUpgrade?.addEventListener('click', () => {
@@ -2053,7 +2056,15 @@ canvas.addEventListener('click', (e) => {
             els.planetInfoLand.onclick = () => {
               GS.activePlanet = p.name;
               els.planetInfo?.classList.add('hidden');
-              transitionToView('planet_overview');
+              // Skip planet_overview -- go straight to the planet's first
+              // zone. The overview is a cinematic middle step that slows
+              // the player down for no real gameplay gain.
+              const firstZone = ZONES.find(z => z.planet === p.name);
+              if (firstZone) {
+                transitionToView('zone', firstZone.id);
+              } else {
+                transitionToView('planet_overview');
+              }
             };
           } else {
             els.planetInfoLand.style.display = '';
@@ -2388,36 +2399,24 @@ function animateBuildings(time) {
 // ============================================================
 // CONSTRUCTION (in-progress) state
 // ------------------------------------------------------------
-// Simple & robust: the building mesh grows out of the ground.
-// Vertical scale goes from MIN_SCALE to its level-based final scale
-// as constructProgress goes 0 -> 1. A translucent cyan "build pad"
-// cylinder is added beneath while construction is in progress.
-//
-// This intentionally avoids mutating any of the building's materials
-// -- GLB templates share materials across clones and there were
-// ordering bugs when material references collided across the async
-// GLB-swap logic.
+// Robust minimal version: the building mesh is placed at its full
+// final scale immediately and never mutated. While progress < 1 a
+// glowing cyan pad cylinder sits at the plot as the visual cue
+// that construction is underway; it's removed on completion.
+// No material swaps, no growth animation -- the building is ALWAYS
+// visible, and the pad progress matches constructProgress.
 // ============================================================
-const CONSTRUCTION_MIN_SCALE_Y = 0.08;
-
 function applyConstructionShader(b) {
-  // Remember the level-based final scale so we can restore it when
-  // construction completes (levels apply a modest size bump).
-  const finalScale = 1 + (b.level - 1) * 0.08;
-  b.finalScale = finalScale;
-  b.mesh.scale.set(finalScale, CONSTRUCTION_MIN_SCALE_Y * finalScale, finalScale);
-
-  // Floating translucent pad that tracks the plot.
   const padMat = createConstructionShader();
   padMat.uniforms.uBuildY.value = 0.5;
-  padMat.uniforms.uProgress.value = 0.5; // stays glowing the whole time
+  padMat.uniforms.uProgress.value = b.constructProgress;
   allShaders.push(padMat);
   const pad = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.2, 2.2, 0.3, 24),
+    new THREE.CylinderGeometry(2.3, 2.3, 0.35, 24),
     padMat,
   );
   pad.position.copy(b.mesh.position);
-  pad.position.y = 0.15;
+  pad.position.y = 0.18;
   planetScene.add(pad);
   b.constructionPad = pad;
   b.constructionMat = padMat;
@@ -2434,8 +2433,6 @@ function finishConstruction(b) {
     if (i >= 0) allShaders.splice(i, 1);
     b.constructionMat = null;
   }
-  const finalScale = b.finalScale ?? 1;
-  b.mesh.scale.setScalar(finalScale);
   b.constructProgress = 1;
   recalcMaxPop();
   recalcDefense();
@@ -2445,12 +2442,8 @@ function tickConstruction(dt) {
   GS.buildings.forEach(b => {
     if (b.constructProgress >= 1) return;
     b.constructProgress = Math.min(1, b.constructProgress + dt / b.buildTime);
-    if (b.mesh) {
-      const finalScale = b.finalScale ?? 1;
-      // Smooth vertical growth via a slight ease-out curve.
-      const ease = 1 - Math.pow(1 - b.constructProgress, 2);
-      const yScale = (CONSTRUCTION_MIN_SCALE_Y + (1 - CONSTRUCTION_MIN_SCALE_Y) * ease) * finalScale;
-      b.mesh.scale.set(finalScale, yScale, finalScale);
+    if (b.constructionMat) {
+      b.constructionMat.uniforms.uProgress.value = b.constructProgress;
     }
     if (b.constructProgress >= 1) finishConstruction(b);
   });
