@@ -482,22 +482,23 @@ function createHexShape(radius) {
 }
 
 function buildPlanetSurface() {
-  // Stronger ambient so buildings aren't lost in darkness
-  planetScene.add(new THREE.AmbientLight(0x334455, 1.0));
-  // Main directional — warm key light
-  const sunDir = new THREE.DirectionalLight(0xffcc88, 1.2);
+  // Strong warm ambient so buildings are clearly readable even on the
+  // lava planet. Warm-tinted so it blends with the volcanic palette.
+  planetScene.add(new THREE.AmbientLight(0x8a7766, 2.0));
+  // Main directional — warm key light, pushed brighter
+  const sunDir = new THREE.DirectionalLight(0xffd8a0, 2.0);
   sunDir.position.set(50, 80, 30);
   planetScene.add(sunDir);
-  // Lava underlight
-  const lavaLight = new THREE.PointLight(0xff4400, 0.8, 100);
+  // Lava underlight -- bumped so hot regions bounce onto buildings
+  const lavaLight = new THREE.PointLight(0xff5522, 1.6, 120);
   lavaLight.position.y = -3;
   planetScene.add(lavaLight);
   // Cool rim light — SC2 style backlight for silhouette pop
-  const rim = new THREE.DirectionalLight(0x6688cc, 0.6);
+  const rim = new THREE.DirectionalLight(0x88aadd, 0.9);
   rim.position.set(-30, 20, -50);
   planetScene.add(rim);
   // Fill from below to catch building undersides
-  const fillLight = new THREE.DirectionalLight(0x553322, 0.3);
+  const fillLight = new THREE.DirectionalLight(0x886644, 0.5);
   fillLight.position.set(0, -10, 0);
   planetScene.add(fillLight);
 
@@ -1536,8 +1537,8 @@ function transitionToView(target, zoneId) {
       renderPass.scene = planetScene;
       controls.minDistance = 60; controls.maxDistance = 200; controls.maxPolarAngle = Math.PI * 0.38;
       heatPass.enabled = true;
-      bloomPass.strength = 0.3;
-      renderer.toneMappingExposure = 0.9;
+      bloomPass.strength = 0.35;
+      renderer.toneMappingExposure = 1.25;
       showOverviewUI();
     };
   } else if (target === 'zone') {
@@ -1553,8 +1554,10 @@ function transitionToView(target, zoneId) {
       controls.minDistance = 15; controls.maxDistance = 150; controls.maxPolarAngle = Math.PI * 0.42;
       controls.target.set(zone.ox, 0, zone.oz);
       heatPass.enabled = true;
-      bloomPass.strength = 0.3;
-      renderer.toneMappingExposure = 0.9;
+      bloomPass.strength = 0.35;
+      // Slightly over-exposed so the warm tones pop and buildings read
+      // clearly against the lava terrain.
+      renderer.toneMappingExposure = 1.25;
       showZoneUI();
     };
   } else { // solar
