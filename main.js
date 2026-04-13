@@ -1244,27 +1244,32 @@ gltfLoader.setDRACOLoader(dracoLoader);
 // Normalize an imported GLB root so it sits on the hex-grid footprint the
 // primitive generators use (roughly a 4-unit-wide square centered on origin,
 // pivot at y=0). Hunyuan3D output tends to be arbitrarily scaled.
-// Per-type GLB normalization target so buildings match their primitive
-// footprints. Anything not listed uses the default. Command Center and
-// Shipyard are the big hubs; most resource/civilian buildings are smaller.
-const BUILDING_TARGET_SIZES = {
-  command_center: 10,
-  shipyard: 10,
-  shield_gen: 8,
-  refinery: 8,
-  power_plant: 8,
-  sensor_tower: 8,
-  repair_bay: 8,
+// Per-type GLB footprint target. We normalize the XZ footprint (not the
+// overall bounding box max) so tall/thin buildings don't end up narrow
+// in their tile -- their footprint fills the hex regardless of height.
+// Hex tiles are ~10 units wide (HEX_SIZE=5 circumradius); a footprint of
+// ~9 leaves a tiny gap so neighbours don't touch.
+const BUILDING_FOOTPRINT_SIZES = {
+  command_center: 9.0,
+  shipyard: 9.0,
+  shield_gen: 7.5,
+  refinery: 7.5,
+  power_plant: 7.5,
+  sensor_tower: 7.5,
+  repair_bay: 7.5,
 };
-const BUILDING_DEFAULT_TARGET_SIZE = 7;
+const BUILDING_DEFAULT_FOOTPRINT = 6.5;
 
 function normalizeBuildingGlb(root, type) {
   const box = new THREE.Box3().setFromObject(root);
   const size = new THREE.Vector3();
   box.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const targetSize = BUILDING_TARGET_SIZES[type] ?? BUILDING_DEFAULT_TARGET_SIZE;
-  const scale = targetSize / maxDim;
+  // Scale based on the XZ footprint rather than overall max dim -- this
+  // keeps building widths consistent with their hex tile regardless of
+  // how tall the asset happens to be.
+  const footprint = Math.max(size.x, size.z) || 1;
+  const targetFootprint = BUILDING_FOOTPRINT_SIZES[type] ?? BUILDING_DEFAULT_FOOTPRINT;
+  const scale = targetFootprint / footprint;
   root.scale.setScalar(scale);
   // Recompute box post-scale to park the mesh on the ground.
   const box2 = new THREE.Box3().setFromObject(root);
